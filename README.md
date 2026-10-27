@@ -57,7 +57,24 @@ I define a "sorting" tournament structure using the following algorithm:
 4. This process "sorts" the songs into pools based on how many of the separators they each beat
 5. Notice that we automatically know the final rankings of the separators based on the size of each pool
 6. Repeat steps 2-5 for each pool, until the pool size is less than or equal to the match size (in which case 1 match can rank that pool)
+7. The tournament ends when there are no more pools with a size greater than 1
+
+The user manually provides the results for each match in the first round, training the DQN to analyze how each feature in the dataset contributed to those calls. Then, the DQN will complete the tournament automatically. Unlike in Swiss tournament, if song A beats song B in any match in any round, it is guaranteed to have a higher ranking at the end because it will be moved up into a higher pool. However, one limitation of this format is that the DQN may not accurately reflect user preferences.
 
 ### c) Hybrid (Relative Feature Data Required)
+When I say "relative feature data", I mean that songs are graded on each feature according the following algorithm:
+1. Choose a feature to grade. Give each song a score of 1.
+2. At most half of the songs are upgraded to 2.
+3. At most half of the songs with score 2 are upgraded to score 3, and so on until one song has the unique high score for that feature.
+4. Repeat steps 1-3 for all features.
+5. Any song that is strictly dominated by another song (has a strictly lower feature score for all features) is eliminated from the tournament and not displayed in the final rankings.
+
+This is relative data because a song's score also depends on the strength of all the other songs in the tournament, so it could differ depending on the playlist it is put into. After the dropout of strictly dominated songs, the user has the option to start a smaller Swiss or Sorting tournament with the songs that remain. 
+
+Since the user is in control of the relative data, they have more influence over the final result than in the Sorting model. However, the drawback of this method is the extra effort required to get the relative feature data. The user does not need to provide this data before the tournament is run, because the program will solicit input to generate that data. Much like feeding the user matches in the Swiss tournament algorithm, the hybrid algorithm will give the user batches of the song data in which they have to choose at most half to "upgrade" (add 1 to the current score for the current feature). This will happen iteratively until all the relative feature data is generated. The risk here is that not all batches will be a good mix of songs the user would upgrade or keep the same. The user has to make a judgement call: if they care about seeing the top three, they choose a batch size of six to guarantee that the top three will rise to the top. If the chosen batch size does not divide the total number of songs, dummy songs are added to pad the data. The dummy songs will be distributed evenly among the batches and automatically not advance. 
+
 ## 4. Codebase Architecture
+### Phase 1
+
 ## 5. Installation & Usage
+### Phase 1
