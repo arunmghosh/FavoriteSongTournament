@@ -77,7 +77,7 @@ Since the user is in control of the relative data, they have more influence over
 ### Phase 1
 ```
 FavoriteSongTournament/
-├── data_loader.py            # Loads dataset (assumed to be the user's input in this case), transforms it into relative or absolute
+├── data_loader.py            # Loads dataset from a filepath, user specifies if it is relative or absolute, methods to transform from one                                  to the other 
 ├── algorithms.py             # Stores logic for the tournament algorithms
 ├── results.py                # Displays the results of the tournament to the user (prints in console)
 ├── experiment.py             # Constructs the full experiment, including outputs
