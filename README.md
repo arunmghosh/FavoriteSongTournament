@@ -75,6 +75,22 @@ Since the user is in control of the relative data, they have more influence over
 
 ## 4. Codebase Architecture
 ### Phase 1
+```
+FavoriteSongTournament/
+├── data_loader.py            # Loads dataset (assumed to be the user's input in this case), transforms it into relative or absolute
+├── algorithms.py             # Stores logic for the tournament algorithms
+├── results.py                # Displays the results of the tournament to the user (prints in console)
+├── experiment.py             # Constructs the full experiment, including outputs
+├── runner.py                 # Driver code, takes in user input, runs tournament
+├── Kmeans_SongClusters.pdf   # Original mathematical problem specification
+├── favorite_song_data.xlsx   # Original dataset, given as relative data, can be transformed to absolute, can remain unused if user wants a                                 Swiss tournament
+├── tests/                    # Automated unit and integration test suite
+│   ├── test_models.py        # Tests the logic of the tournaments
+│   ├── test_math.py          # Ensure that all of the calculations are mathematically correct
+│   ├── test_experiment.py    # Ensure that the pipeline runs correctly and outputs are in the correct format
+│   └── test_smoke.py         # Rapid end-to-end integration smoke test
+└── README.md                 # Project specification, experiment documentation, architecture, and usage
+```
 
 ## 5. Installation & Usage
 ### Phase 1
