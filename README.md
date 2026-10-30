@@ -94,3 +94,53 @@ FavoriteSongTournament/
 
 ## 5. Installation & Usage
 ### Phase 1
+
+#### Prerequisites
+The project requires Python 3.8+ with the following packages:
+- `pandas`
+- `openpyxl`
+- `numpy`
+- `scipy`
+- `torch`
+
+Install dependencies via pip:
+```bash
+pip install pandas openpyxl numpy scipy torch
+```
+
+#### Running the Interactive Console Tournament
+Run the interactive runner CLI:
+```bash
+python3 runner.py
+```
+You will be prompted to:
+1. Enter your playlist size (between 8 and 128 songs).
+2. Choose your data source (use the included `favorite_song_data.xlsx`, specify a custom file, or generate a synthetic playlist).
+3. Select a tournament format:
+   - **Swiss**: No initial data needed. Evaluates matches directly in score pools with Strength of Schedule tiebreakers.
+   - **Sorting**: Multi-pivot quicksort algorithm. You rank matches manually in Round 1, training a Deep Q-Network (DQN) to automate subsequent rounds.
+   - **Hybrid**: Analyzes relative criteria, filters out strictly dominated songs (songs strictly worse across all features), and runs a Swiss or Sorting tournament on surviving songs.
+4. Select comparison criteria (default suggestions: Melody, Catchiness, Lyricism, Message, or custom criteria).
+5. Choose match size (2 to 8 songs per match).
+6. Rank songs in each match.
+7. View your results: winner announcement, complete rankings table, and Pearson/Spearman feature correlations with music taste insights.
+
+#### Automated Demo Mode
+Run a quick, non-interactive demonstration:
+```bash
+# Swiss Tournament demo
+python3 runner.py --demo --format swiss --size 16 --match-size 2
+
+# Sorting Tournament demo with DQN automation
+python3 runner.py --demo --format sorting --size 16 --match-size 3
+
+# Hybrid Tournament demo with dominance filtering
+python3 runner.py --demo --format hybrid --size 16 --match-size 2
+```
+
+#### Running Automated Tests
+Run all unit, mathematical, pipeline, and integration smoke tests:
+```bash
+python3 -m unittest discover tests
+```
+
