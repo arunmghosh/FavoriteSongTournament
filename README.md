@@ -10,7 +10,7 @@ In short, I want to build an application that encourages people curious about th
 ### a) Functionality
 The application will first take in a playlist (exact format depends on stage of development) to ensure that the number of songs in the tournament is between 8 and 128. These numbers were chosen partially for convenience (they are powers of 2, very nice numbers for the Swiss tournament system), and also the practical insights the tournament results will provide. A playlist larger than 128 songs (7-8 hours end to end) likely doesn't define the user's niche tastes very well, while a playlist smaller than 8 songs (about 30 min) probably doesn't have enough information to accomplish that goal. 
 
-Once the playlist size has been verified, the user will be prompted to choose a tournament format (see "3. Tournament Formats" below). Each format requires a certain level of front-end work by the user, ranging from no initial work to requesting that the user upload a dataset. Regardless of the tournament type, the user is also prompted to select the criteria under which they want to rate the songs. They have the option to choose from a list of suggestions, or import a list of their own criteria if they already have ideas. Lastly, they will be asked to select a match size from 2-8, which is the maximum number of songs they will be asked to compare at a time. These numbers were chosen to provide a spectrum between ease of decision making (comparing only 2) and the speed of the tournament (comparing 8 at a time gives a lot of information to rank the songs with minimal tournament rounds). 
+Once the playlist size has been verified, the user will be prompted to choose a tournament format (see "3. Tournament Formats" below). Some formats require data, while others don't. Regardless of the tournament type, the user is also prompted to select the criteria under which they want to rate the songs. They have the option to define custom criteria, choose from a list of suggestions, or use the features of an existing dataset. Lastly, they will be asked to select a match size from 2-8, which is the maximum number of songs they will be asked to compare at a time. These numbers were chosen to provide a spectrum between ease of decision making (comparing only 2) and the speed of the tournament (comparing 8 at a time gives a lot of information to rank the songs with minimal tournament rounds). 
 
 After the user has selected the parameters of the tournament specified above, they can run the tournament. The amount of work they will need to do at this stage is inversely proportional to the front-end work they choose to do when setting up the tournament. If they provided their own dataset, they will be able to teach a neural network to make decisions for them (manually enter one round of the tournament, and then the neural network learns correlations between match outcomes and features). If they didn't want to use any data, they will manually run the tournament (the application will display one match at a time and ask for the outcomes). 
 
@@ -18,39 +18,46 @@ Upon completion of all the matches, the user will be able to view the results. T
 
 ### b) Stages Of Development
 **Phase 1: Console Output**
-The first phase of this project is a proof of concept where I demonstrate that all tournament algorithms provide meaningful insights before focusing on the logistics of enhancing the user interface. In this prototype, the user will enter a playlist size into the console. 
+The first phase of this project is a proof of concept where I demonstrate that all tournament algorithms provide meaningful insights before focusing on the logistics of enhancing the user interface. In this prototype, the user will enter input into the console. 
 
-If the number of songs is within the valid range (8-128), the user will then input their choice of tournament format into the console. Based on that choice, the program may ask them for additional data (see "3. Tournament Formats" below). If that additional data is properly formatted (contains the correct number of songs, has no missing data). This data will contain the features chosen by the user (either from a list of suggestions from the program or metrics the user wants to test). Then, the user inputs a match size to the console.
+The user is first asked if they want to use an existing (cached) dataset, or create a new one. If the user chooses to upload a cached dataset, they can choose any dataset already present in the data folder. Otherwise, they are asked to provide the path to the input file (spreadsheet) containing the list of songs in the playlist. This spreadsheet must contain song titles and artist labels, but can also contain data on other song features. However, it must contain 8-128 songs (anything outside that range is invalid). 
 
-During the actual tournament execution, each match the user is asked to provide an outcome will be printed to the console, and the user will be notified when all automated match results have been decided. Then, the full results (rankings and comments on how each feature contributed to them) will be printed to the console.
+In either case, the next prompt is whether or not they want to use just song names (title and artist), absolute feature data, or relative feature data. Absolute feature data contains scores based on a fixed rubric, and each song's score is independent of the others. By contrast, relative feature data describes how each song performs on each feature relative to the other songs in the playlist. If a dataset has only song titles and artist labels, the user is asked if they want to create additional feature data or use it as is. If they want to create additional data, they specify the criteria they want, and whether they want to create absolute or relative feature data.
+
+The program guides the user step-by-step through creating new data. For absolute feature data, the user constructs a rubric for each feature (silently standardized/normalized by the program later so the features all have the same scale), and assigns a value for each song using that rubric. For relative data, all songs start with score 1 and at most half are promoted to score 2. At most half of those are promoted to score 3, and so on until there is a sole highest score. In either case, the user can choose how many songs they want to score at time for convenience. The relative case is an iterative process while the absolute case requires only one entry per feature per song. Once a dataset is ready to be cached, whether it's just names or more data, the user can name it, and it's saved to the data folder, with a note about which type of data it is.
+
+The user has the option to use a cached dataset with just names and add data to it, or use only the names from a cached dataset with more data. Additionally, the user can use a cached dataset with absolute feature data and request to convert it to relative feature data and vice versa. None of these requests alter the cached data; conversions are stored temporarily or can be cached separately. 
+
+After the user has configured the dataset they want to use for the tournament, they choose a playlist size (8 - size of dataset). If they don't choose to use the full dataset, they get a random subset with the specified size. The playlist is shuffled internally (not modifying the cached data) before the tournament runs. Lastly, the user must choose a tournament format (see '3. Tournament Formats' below) that is compatible with the dataset they have chosen, select a match size (number of songs they want to compare at a time) and then they run it. If relative or absolute feature data was provided, the user has the option to automate the tournament after the first round. A DQN will learn correlations between each feature and the user's match decisions in round 1 to call matches in the remaining rounds. If the user didn't use any data beyond song titles and artist labels, or just prefers to have complete control over the match winners, the can manually complete the tournament. 
+
+The results of the tournament are printed to the console. The user can choose to see the full rankings, the top 5 ranked songs, or just the top song. If they provided feature data (absolute or relative), they will be able to see an analysis of how well each feature correlates to those rankings. 
 
 **Phase 2: File Output** 
-The only change made from phase 1 in this next phase is that the output will be a text or markdown file (.txt, .md, or .pdf). This gives the user something to keep from each run of the program. 
+The only change made from phase 1 in this next phase is that the output will be a text or markdown file (.txt, .md, or .pdf). This gives the user something to keep from each run of the program (each of these files are stored in the results subfolder). The user can choose the desired format. 
 
 **Phase 3: Python Executable File (.exe)** 
-In Phase 3, I want to create a nice GUI and make it easier for the user to run the application. Instead of having to clone the repository and run driver code in Python, they can just download and run an executable file (.exe). When the file starts running, the user is prompted to enter the number of songs in their playlist in a dialog box. Then, the screen is divided into sections (buttons) that each represent a tournament format, and a textbox explaining them. After a selection is made, the program will ask the user to upload a .xlsx file with more data if necessary. Then, another dialog box appears to let the user choose a match size. 
+In Phase 3, I want to create a nice GUI and make it easier for the user to run the application. Instead of having to clone the repository and run driver code in Python, they can just download and run an executable file (.exe). When the file starts running, the user is prompted to select a cached playlist or import a new one. Then, they configure the data they want to use in the tournament (see 'Phase 1: Console Output' above). Next, the screen is divided into sections (buttons) that each represent a tournament format, and a textbox explaining them. After a selection is made, another dialog box appears to let the user choose a match size. 
 
-Once the tournament is set up, the match window opens. The user is shown a match that they have to call, which feeds information to the program. Once the user completes all of the matches they are prompted to judge, the program will automate the rest of the tournament (if it is unfinished). Then, the results will be displayed on the screen. The user can select which subset of the rankings they want to see (one, notable i.e. top N, all). One section of the screen will have the ranked list, another will prominently show the winner of the tournament, and the last section will provide insights about how each feature contributed to the rankings (correlation between feature score and final score in the tournament). The user will be able to click a button and download the results in a format they choose (.txt, .md, .pdf). 
+Once the tournament is set up, the match window opens. The user is shown a match that they have to call, which feeds information to the program. Once the user completes all of the matches of the first round, they are prompted to automate the rest of the tournament or stick to manual decision-making. Then, when the tournament is finished, the results will be displayed on the screen. The user can select which subset of the rankings they want to see (one, top five, all). One section of the screen will have the ranked list, another will prominently show the winner of the tournament, and the last section will provide insights about how each feature contributed to the rankings (correlation between feature score and final score in the tournament). The user will be able to click a button and download the results in a format they choose (.txt, .md, .pdf). 
 
 **Phase 4: Create Application With Spotify API** 
 My ultimate vision for this project is to be able to run the application directly from Spotify or from a webpage that can access a Spotify playlist. This would make the input very clean and easy from the user's perspective (just click a button from the page of that playlist or import the playlist to an external site). Once the size of the playlist is verified to be compatible with the program, the application will launch in another tab or window, where they can run the tournament and get output as they can in phase 3. 
 
 ## 3. Tournament Formats
 ### a) Swiss (No Data Needed)
-If the user doesn't want to provide any initial data, they can simply call all of the matches manually. Matches will be presented to them using the Swiss tournament structure, which pools participants based on their current score in the tournament. At the start, each song will have a score of 0, and they will get one point for every song they beat in a match. For instance, if the match size is 2, the winner of each match gets 1 point added to their score. If the match size is 8, the songs will be ranked 1-8 by the user. First place will get 7 points (beat out 7 other songs), second place will get 6, and so on. When a round is over, the songs are sorted by their score, greatest to least, and the next round's matches are consecutive pairs in that ranked list (1 v.s. 2, 3 v.s. 4, etc). 
+This format is the ideal option if the user doesn't provide additional song feature data, but is compatible with any data. Here is the general algorithm:
 
-If the user chooses a match size that is not a divisor of the total number of songs in the tournament (for example, a match size of 2 for a playlist of 15), then the song list will be padded with dummies to round up to a multiple of the match size. Dummies will automatically lose all matches it is placed in (obtain the lowest ranking possible as to not affect the rankings of the real songs). The user will never see a dummy song (if they are prompted to call a match involving a dummy, the dummy is excluded from the display and automatically given last place in that match). 
-
-The tournament will end when, at the conclusion of a round, one song has a unique winning score. The songs will be ranked based on final scores, and tie breakers will be based on strength of schedule. If there are still any ties left after strength of schedule analysis, rankings between those songs will be randomly chosen. 
+1. Sort the list of songs by current score (they all start with 0)
+2. Group them into matches of the specified size by going down the list
+3. Rank the songs in each match
+4. Add to point totals (first adds match_size - 1, second adds one less, and so on)
+5. Repeat steps 1-4 until one song has the sole highest score
 
 One limitation of this method is that if song A beats song B in a match, song A is not guaranteed to have a better final ranking than song B. This may happen because real world preferences don't always follow the transitive property: if song A beats song B, and song B beats song C, then song A must beat song C. Depending on the outcomes of each match, it may not even be mathematically/logically possible to enforce a rule that guarantees that song A will have a higher final ranking than song B. 
 
-### b) Sorting (Absolute Feature Data Required)
-When I say "absolute feature data", I mean that each feature chosen to judge the songs by has a grading scale and rubric, and the user's score for each song is chosen independently of the scores of the other songs. In other words, this score will be the same if the song is moved into another playlist. 
+### b) Sorting (Absolute Feature Data Recommended)
+This format is the ideal option if the user provides absolute feature data, but is compatible with any or no data. Here is the general algorithm:
 
-If the user uploads a dataset with absolute feature data, the program can leverage a Deep Q Network (DQN) to learn how feature scores contribute to match outcomes. This learning happens after the user manually completes the first round of the tournament.
-
-I define a "sorting" tournament structure using the following algorithm:
 1. Assign each song a score of 0
 2. Choose (match size - 1) songs at a random as a separators
 3. Each match in the first round is the separators plus one other song, until every song has faced the separators
@@ -59,21 +66,19 @@ I define a "sorting" tournament structure using the following algorithm:
 6. Repeat steps 2-5 for each pool, until the pool size is less than or equal to the match size (in which case 1 match can rank that pool)
 7. The tournament ends when there are no more pools with a size greater than 1
 
-The user manually provides the results for each match in the first round, training the DQN to analyze how each feature in the dataset contributed to those calls. Then, the DQN will complete the tournament automatically. Unlike in Swiss tournament, if song A beats song B in any match in any round, it is guaranteed to have a higher ranking at the end because it will be moved up into a higher pool. However, one limitation of this format is that the DQN may not accurately reflect user preferences.
+The user manually provides the results for each match in the first round, and if they provided data, that trains a DQN to analyze how each feature in the dataset contributed to those calls. Then, the DQN will complete the tournament automatically. The user can also finish the rest of the tournament themselves if they provided no data or wish to do it. To prevent the user from having to re-rank the separators in every match, save the rankings of the separators from the first match of a round and just ask the user where they would insert the new song. 
+
+Unlike in Swiss tournament, if song A beats song B in any match in any round, it is guaranteed to have a higher ranking at the end because it will be moved up into a higher pool. However, one limitation of this format is that the DQN may not accurately reflect user preferences.
 
 ### c) Hybrid (Relative Feature Data Required)
-When I say "relative feature data", I mean that songs are graded on each feature according the following algorithm:
-1. Choose a feature to grade. Give each song a score of 1.
-2. At most half of the songs are upgraded to 2.
-3. At most half of the songs with score 2 are upgraded to score 3, and so on until one song has the unique high score for that feature.
-4. Repeat steps 1-3 for all features.
-5. Any song that is strictly dominated by another song (has a strictly lower feature score for all features) is eliminated from the tournament and not displayed in the final rankings.
+Relative feature data is required for a hybrid format because any song that is strictly dominated by another song (has a strictly lower feature score for all features) is eliminated from the tournament and not displayed in the final rankings. If the user wants to see complete rankings of all songs, they should not use this method. This dropout could technically work with absolute feature data, but it would potentially eliminate most of the songs. The way relative feature data is constructed gives us a nice way to weed out strictly dominated songs without eliminating as many. After the dropout of strictly dominated songs, the user has the option to start a smaller Swiss or Sorting tournament with the songs that remain.
 
-This is relative data because a song's score also depends on the strength of all the other songs in the tournament, so it could differ depending on the playlist it is put into. After the dropout of strictly dominated songs, the user has the option to start a smaller Swiss or Sorting tournament with the songs that remain. 
+Since the user is in control of the relative data, they have more influence over the final result than in the Sorting model. However, the drawback of this method is the extra effort required to get the relative feature data (the other methods don't require data).
 
-Since the user is in control of the relative data, they have more influence over the final result than in the Sorting model. However, the drawback of this method is the extra effort required to get the relative feature data. The user does not need to provide this data before the tournament is run, because the program will solicit input to generate that data. Much like feeding the user matches in the Swiss tournament algorithm, the hybrid algorithm will give the user batches of the song data in which they have to choose at most half to "upgrade" (add 1 to the current score for the current feature). This will happen iteratively until all the relative feature data is generated. The risk here is that not all batches will be a good mix of songs the user would upgrade or keep the same. The user has to make a judgement call: if they care about seeing the top three, they choose a batch size of six to guarantee that the top three will rise to the top. If the chosen batch size does not divide the total number of songs, dummy songs are added to pad the data. The dummy songs will be distributed evenly among the batches and automatically not advance. 
+## 4. Design Considerations
+If the chosen match size for the tournament does not divide the total number of songs, pad the list with dummy songs so the match size remains constant. The user should never see dummy songs, and dummy songs automatically get no points in a match so they don't affect the rankings. There should also be at most one dummy song in a match (for instance, if there are 13 songs and the match size is 3, there will be 3 matches of 3 real songs each, and 2 matches of 2 real songs and 1 dummy each).
 
-## 4. Codebase Architecture
+## 5. Codebase Architecture
 ### Phase 1
 ```
 FavoriteSongTournament/
@@ -92,9 +97,8 @@ FavoriteSongTournament/
 └── README.md                 # Project specification, experiment documentation, architecture, and usage
 ```
 
-## 5. Installation & Usage
+## 6. Installation & Usage
 ### Phase 1
-
 #### Prerequisites
 The project requires Python 3.8+ with the following packages:
 - `pandas`
