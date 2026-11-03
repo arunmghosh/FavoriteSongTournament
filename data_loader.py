@@ -1,19 +1,29 @@
-"""Data loader module for Favorite Song Tournament.
+"""Data loader and dataset caching module for Favorite Song Tournament.
 
-Handles loading playlists from file (Excel/CSV), validating playlist constraints,
-identifying strictly dominated songs, and transforming feature scores between
-relative and absolute scales.
+Features:
+- Loading and caching datasets in the `data/` directory.
+- Metadata tracking (data type: names_only, absolute, relative, along with descriptive notes).
+- Interactive and programmatic feature creation (absolute rubrics and iterative relative tiers).
+- Dataset transformations (relative <-> absolute, stripping to names only).
+- Playlist subsetting (8 to dataset size) and internal shuffling.
+- Strict Pareto dominance filtering and dummy padding.
 """
 
 from __future__ import annotations
 
+import json
 import math
+import random
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+DATA_DIR = Path("data")
+METADATA_FILE = DATA_DIR / "metadata.json"
 
 SUGGESTED_FEATURES: List[str] = [
     "Melody",
@@ -38,7 +48,6 @@ class Song:
     is_dummy: bool = False
 
     def __post_init__(self) -> None:
-        # Ensure all feature values are floats
         self.features = {k: float(v) for k, v in self.features.items()}
 
     @property
@@ -70,14 +79,23 @@ class Playlist:
         songs: List[Song],
         data_type: str = "relative",
         feature_names: Optional[List[str]] = None,
+        name: Optional[str] = None,
+        note: Optional[str] = None,
     ) -> None:
         self.songs: List[Song] = [s.copy() for s in songs]
         self.data_type: str = data_type.lower()
-        if self.data_type not in ("relative", "absolute"):
-            raise ValueError(f"Invalid data_type '{data_type}'. Must be 'relative' or 'absolute'.")
+        if self.data_type not in ("names_only", "relative", "absolute"):
+            raise ValueError(f"Invalid data_type '{data_type}'. Must be 'names_only', 'relative', or 'absolute'.")
 
-        if feature_names is not None:
-            self.feature_names: List[str] = list(feature_names)
+        self.name = name or "Untitled Playlist"
+        self.note = note or ""
+
+        if self.data_type == "names_only":
+            self.feature_names: List[str] = []
+            for s in self.songs:
+                s.features = {}
+        elif feature_names is not None:
+            self.feature_names = list(feature_names)
         elif self.songs and self.songs[0].features:
             self.feature_names = list(self.songs[0].features.keys())
         else:
@@ -115,19 +133,65 @@ class Playlist:
                 f"Playlist size ({real_count}) must be between {min_size} and {max_size} songs."
             )
 
-        # Check for missing song names or invalid features
         for s in self.real_songs:
             if not s.title or not s.artist:
                 raise ValueError(f"Song ID {s.id} is missing a title or artist.")
-            for f in self.feature_names:
-                if f not in s.features or np.isnan(s.features[f]):
-                    raise ValueError(f"Song '{s.title}' is missing a valid score for feature '{f}'.")
+            if self.data_type != "names_only":
+                for f in self.feature_names:
+                    if f not in s.features or np.isnan(s.features[f]):
+                        raise ValueError(f"Song '{s.title}' is missing a valid score for feature '{f}'.")
+
+    def to_names_only(self) -> Playlist:
+        """Returns a copy of the playlist using only song names (title and artist)."""
+        stripped_songs = [
+            Song(id=s.id, title=s.title, artist=s.artist, features={}, is_dummy=s.is_dummy)
+            for s in self.songs
+        ]
+        return Playlist(
+            songs=stripped_songs,
+            data_type="names_only",
+            feature_names=[],
+            name=f"{self.name} (Names Only)",
+            note=self.note,
+        )
+
+    def get_random_subset(self, size: int, random_seed: Optional[int] = None) -> Playlist:
+        """Returns a random subset of the playlist without modifying the original."""
+        real = list(self.real_songs)
+        if size < 8 or size > len(real):
+            raise ValueError(f"Subset size ({size}) must be between 8 and dataset size ({len(real)}).")
+
+        rng = random.Random(random_seed)
+        sampled = rng.sample(real, size)
+
+        # Re-index ids 1..size for cleanliness
+        new_songs = [
+            Song(id=idx + 1, title=s.title, artist=s.artist, features=dict(s.features))
+            for idx, s in enumerate(sampled)
+        ]
+        return Playlist(
+            songs=new_songs,
+            data_type=self.data_type,
+            feature_names=self.feature_names,
+            name=f"{self.name} (Subset {size})",
+            note=self.note,
+        )
+
+    def shuffled(self, random_seed: Optional[int] = None) -> Playlist:
+        """Returns a copy of the playlist with songs shuffled internally."""
+        real = [s.copy() for s in self.real_songs]
+        rng = random.Random(random_seed)
+        rng.shuffle(real)
+        return Playlist(
+            songs=real,
+            data_type=self.data_type,
+            feature_names=self.feature_names,
+            name=self.name,
+            note=self.note,
+        )
 
     def pad_with_dummies(self, match_size: int) -> Tuple[Playlist, int]:
-        """Pads the playlist with dummy songs to make total count a multiple of match_size.
-
-        Returns a new padded Playlist and the number of dummies added.
-        """
+        """Pads the playlist with dummy songs to make total count a multiple of match_size."""
         if match_size < 2:
             raise ValueError(f"Match size ({match_size}) must be at least 2.")
 
@@ -152,20 +216,15 @@ class Playlist:
             songs=padded_songs,
             data_type=self.data_type,
             feature_names=self.feature_names,
+            name=self.name,
+            note=self.note,
         )
         return padded_playlist, dummies_needed
 
     def filter_strictly_dominated(self) -> Tuple[Playlist, List[Song]]:
-        """Identifies and eliminates songs that are strictly dominated by another song.
-
-        A song B is strictly dominated by song A if for ALL features f:
-            A.features[f] > B.features[f]
-
-        Returns:
-            Tuple of (new Playlist with surviving songs, list of eliminated songs).
-        """
-        if not self.feature_names:
-            return Playlist(self.real_songs, self.data_type, self.feature_names), []
+        """Identifies and eliminates songs that are strictly dominated by another song."""
+        if not self.feature_names or self.data_type == "names_only":
+            return self.copy(), []
 
         survivors: List[Song] = []
         dominated: List[Song] = []
@@ -175,7 +234,6 @@ class Playlist:
             for opponent in self.real_songs:
                 if candidate.id == opponent.id:
                     continue
-                # Strictly dominated means strictly lower for EVERY feature
                 if all(
                     opponent.features[f] > candidate.features[f]
                     for f in self.feature_names
@@ -192,6 +250,8 @@ class Playlist:
             songs=survivors,
             data_type=self.data_type,
             feature_names=self.feature_names,
+            name=f"{self.name} (Survivors)",
+            note=self.note,
         )
         return survivor_playlist, dominated
 
@@ -200,7 +260,8 @@ class Playlist:
         rows = []
         for s in self.real_songs:
             row: Dict[str, Any] = {"Song": s.title, "Artist": s.artist}
-            row.update(s.features)
+            if self.data_type != "names_only":
+                row.update(s.features)
             rows.append(row)
         return pd.DataFrame(rows)
 
@@ -210,8 +271,195 @@ class Playlist:
             songs=self.songs,
             data_type=self.data_type,
             feature_names=self.feature_names,
+            name=self.name,
+            note=self.note,
         )
 
+
+# ==============================================================================
+# DATASET CACHING FUNCTIONS
+# ==============================================================================
+
+def ensure_cache_dir(data_dir: Union[str, Path] = DATA_DIR) -> Path:
+    """Ensures the cache directory exists and initializes default metadata."""
+    dir_path = Path(data_dir)
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+    meta_file = dir_path / "metadata.json"
+    if not meta_file.exists():
+        initial_metadata: Dict[str, Any] = {}
+        # If favorite_song_data.xlsx exists in root, copy/register it
+        root_data = Path("favorite_song_data.xlsx")
+        target_data = dir_path / "favorite_song_data.xlsx"
+        if root_data.exists() and not target_data.exists():
+            import shutil
+            shutil.copy2(root_data, target_data)
+
+        if target_data.exists():
+            initial_metadata["favorite_song_data"] = {
+                "name": "favorite_song_data",
+                "filename": "favorite_song_data.xlsx",
+                "filepath": str(target_data),
+                "data_type": "relative",
+                "feature_names": ["Melody", "Catchiness", "Lyricism", "Message"],
+                "song_count": 128,
+                "note": "Original benchmark dataset with relative feature scores (1 to 8).",
+                "created_at": datetime.now().isoformat(),
+            }
+
+        with open(meta_file, "w", encoding="utf-8") as f:
+            json.dump(initial_metadata, f, indent=2)
+
+    return dir_path
+
+
+def list_cached_datasets(data_dir: Union[str, Path] = DATA_DIR) -> List[Dict[str, Any]]:
+    """Returns a list of all cached datasets in the data folder with their metadata."""
+    dir_path = ensure_cache_dir(data_dir)
+    meta_file = dir_path / "metadata.json"
+
+    metadata: Dict[str, Any] = {}
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except Exception:
+            metadata = {}
+
+    # Discover any spreadsheet files in data_dir that may not be in metadata
+    cached_list: List[Dict[str, Any]] = []
+    seen_files = set()
+
+    # Add existing metadata records
+    for key, info in metadata.items():
+        fpath = Path(info.get("filepath", dir_path / info.get("filename", "")))
+        if fpath.exists():
+            cached_list.append(info)
+            seen_files.add(fpath.resolve())
+
+    # Add any untracked .xlsx or .csv files in data_dir
+    for f in dir_path.iterdir():
+        if f.suffix.lower() in (".xlsx", ".xls", ".csv") and f.resolve() not in seen_files:
+            try:
+                p = load_dataset(f, validate_size=False)
+                entry = {
+                    "name": f.stem,
+                    "filename": f.name,
+                    "filepath": str(f),
+                    "data_type": p.data_type,
+                    "feature_names": p.feature_names,
+                    "song_count": len(p),
+                    "note": "Auto-discovered dataset in data folder.",
+                    "created_at": datetime.now().isoformat(),
+                }
+                cached_list.append(entry)
+            except Exception:
+                continue
+
+    return cached_list
+
+
+def save_dataset_to_cache(
+    playlist: Playlist,
+    name: str,
+    note: str = "",
+    file_format: str = "xlsx",
+    data_dir: Union[str, Path] = DATA_DIR,
+) -> Path:
+    """Saves a playlist to the cache data directory with descriptive metadata."""
+    dir_path = ensure_cache_dir(data_dir)
+
+    # Sanitize name
+    clean_name = "".join(c for c in name if c.isalnum() or c in ("_", "-", " ")).strip()
+    clean_name = clean_name.replace(" ", "_")
+    if not clean_name:
+        clean_name = f"dataset_{int(datetime.now().timestamp())}"
+
+    filename = f"{clean_name}.{file_format.lstrip('.')}"
+    file_path = dir_path / filename
+
+    df = playlist.to_dataframe()
+    if file_format.lower() in ("xlsx", "xls"):
+        df.to_excel(file_path, index=False)
+    else:
+        df.to_csv(file_path, index=False)
+
+    # Update metadata.json
+    meta_file = dir_path / "metadata.json"
+    metadata: Dict[str, Any] = {}
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except Exception:
+            metadata = {}
+
+    metadata[clean_name] = {
+        "name": clean_name,
+        "filename": filename,
+        "filepath": str(file_path),
+        "data_type": playlist.data_type,
+        "feature_names": playlist.feature_names,
+        "song_count": len(playlist),
+        "note": note or f"Cached playlist with {len(playlist)} songs ({playlist.data_type}).",
+        "created_at": datetime.now().isoformat(),
+    }
+
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    return file_path
+
+
+def load_cached_dataset(
+    dataset_name: str,
+    data_dir: Union[str, Path] = DATA_DIR,
+) -> Playlist:
+    """Loads a cached dataset by name or filename from the data directory."""
+    dir_path = ensure_cache_dir(data_dir)
+    meta_file = dir_path / "metadata.json"
+
+    meta_info: Optional[Dict[str, Any]] = None
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            meta_info = metadata.get(dataset_name)
+        except Exception:
+            pass
+
+    target_path = None
+    if meta_info and "filepath" in meta_info and Path(meta_info["filepath"]).exists():
+        target_path = Path(meta_info["filepath"])
+    elif (dir_path / f"{dataset_name}.xlsx").exists():
+        target_path = dir_path / f"{dataset_name}.xlsx"
+    elif (dir_path / f"{dataset_name}.csv").exists():
+        target_path = dir_path / f"{dataset_name}.csv"
+    elif (dir_path / dataset_name).exists():
+        target_path = dir_path / dataset_name
+    elif Path(dataset_name).exists():
+        target_path = Path(dataset_name)
+    else:
+        raise FileNotFoundError(f"Cached dataset '{dataset_name}' not found in {dir_path}.")
+
+    data_type = meta_info.get("data_type", "relative") if meta_info else "relative"
+    feat_cols = meta_info.get("feature_names") if meta_info else None
+    note = meta_info.get("note", "") if meta_info else ""
+
+    playlist = load_dataset(
+        target_path,
+        data_type=data_type,
+        feature_columns=feat_cols,
+        validate_size=True,
+    )
+    playlist.name = dataset_name
+    playlist.note = note
+    return playlist
+
+
+# ==============================================================================
+# DATASET LOADING & CREATION
+# ==============================================================================
 
 def load_dataset(
     filepath: Union[str, Path],
@@ -220,18 +468,7 @@ def load_dataset(
     max_songs: Optional[int] = None,
     validate_size: bool = True,
 ) -> Playlist:
-    """Loads a playlist from an Excel (.xlsx) or CSV file.
-
-    Args:
-        filepath: Path to dataset file.
-        data_type: 'relative' or 'absolute'.
-        feature_columns: Specific feature column names to load (default: all numeric columns).
-        max_songs: Optional limit on songs to load (e.g. to test with 16 songs).
-        validate_size: Whether to enforce the 8-128 song range check.
-
-    Returns:
-        Playlist object.
-    """
+    """Loads a playlist from an Excel (.xlsx) or CSV file."""
     path = Path(filepath)
     if not path.exists():
         raise FileNotFoundError(f"Dataset file not found: {filepath}")
@@ -243,7 +480,6 @@ def load_dataset(
     else:
         raise ValueError(f"Unsupported file format '{path.suffix}'. Use .xlsx or .csv.")
 
-    # Standardize column names
     col_map = {}
     for col in df.columns:
         c_clean = str(col).strip()
@@ -254,41 +490,45 @@ def load_dataset(
     df = df.rename(columns=col_map)
 
     if "Song" not in df.columns:
-        # Fall back to first column as song title
         df = df.rename(columns={df.columns[0]: "Song"})
     if "Artist" not in df.columns:
-        # Fall back to second column as artist if available, else 'Unknown'
         if len(df.columns) > 1:
             df = df.rename(columns={df.columns[1]: "Artist"})
         else:
             df["Artist"] = "Unknown"
 
-    # Identify feature columns
-    if feature_columns is not None:
+    numeric_cols = [
+        c for c in df.columns
+        if c not in ("Song", "Artist") and pd.api.types.is_numeric_dtype(df[c])
+    ]
+
+    # Detect if dataset is names only
+    effective_data_type = data_type.lower()
+    if not numeric_cols:
+        effective_data_type = "names_only"
+        features_to_use = []
+    elif effective_data_type == "names_only":
+        features_to_use = []
+    elif feature_columns is not None:
         missing = [f for f in feature_columns if f not in df.columns]
         if missing:
             raise ValueError(f"Specified feature columns not found in file: {missing}")
         features_to_use = list(feature_columns)
     else:
-        features_to_use = [
-            c for c in df.columns
-            if c not in ("Song", "Artist") and pd.api.types.is_numeric_dtype(df[c])
-        ]
+        features_to_use = numeric_cols
 
     if max_songs is not None and max_songs > 0:
         df = df.iloc[:max_songs].copy()
 
-    # Drop rows where Song is NaN
     df = df.dropna(subset=["Song"])
 
-    # Ensure no missing values in feature columns
     for f in features_to_use:
         if df[f].isnull().any():
             raise ValueError(f"Feature column '{f}' contains missing (NaN) values.")
 
     songs: List[Song] = []
     for idx, row in df.iterrows():
-        song_features = {f: float(row[f]) for f in features_to_use}
+        song_features = {f: float(row[f]) for f in features_to_use} if features_to_use else {}
         songs.append(
             Song(
                 id=int(idx) + 1,
@@ -298,10 +538,114 @@ def load_dataset(
             )
         )
 
-    playlist = Playlist(songs=songs, data_type=data_type, feature_names=features_to_use)
+    playlist = Playlist(
+        songs=songs,
+        data_type=effective_data_type,
+        feature_names=features_to_use,
+        name=path.stem,
+    )
     if validate_size:
         playlist.validate(min_size=8, max_size=128)
     return playlist
+
+
+def create_absolute_feature_data(
+    playlist: Playlist,
+    feature_names: List[str],
+    rubrics: Dict[str, Dict[str, Any]],
+    scoring_callback: Callable[[Song, str, Dict[str, Any]], float],
+) -> Playlist:
+    """Interactively or programmatically constructs absolute feature data for a playlist.
+
+    For each feature, the user/caller assigns a score to each song using the rubric.
+    The scores are then silently normalized to a standardized scale [1.0, 10.0].
+
+    Args:
+        playlist: Input playlist (e.g. names only).
+        feature_names: List of features to score.
+        rubrics: Dict of feature_name -> {"min": float, "max": float, "description": str}.
+        scoring_callback: Callable(song, feature_name, rubric) -> raw_score.
+
+    Returns:
+        New Playlist with standardized absolute feature scores.
+    """
+    new_songs: List[Song] = [s.copy() for s in playlist.real_songs]
+    raw_scores: Dict[str, List[float]] = {f: [] for f in feature_names}
+
+    for s in new_songs:
+        for f in feature_names:
+            rubric = rubrics.get(f, {"min": 1.0, "max": 10.0, "description": "Standard scale 1-10"})
+            raw_val = scoring_callback(s, f, rubric)
+            s.features[f] = float(raw_val)
+            raw_scores[f].append(float(raw_val))
+
+    # Silently standardize / normalize each feature to [1.0, 10.0]
+    for f in feature_names:
+        f_min = min(raw_scores[f])
+        f_max = max(raw_scores[f])
+        for s in new_songs:
+            val = s.features[f]
+            if f_max > f_min:
+                norm_val = 1.0 + ((val - f_min) / (f_max - f_min)) * 9.0
+            else:
+                norm_val = 5.0
+            s.features[f] = round(float(norm_val), 2)
+
+    return Playlist(
+        songs=new_songs,
+        data_type="absolute",
+        feature_names=feature_names,
+        name=f"{playlist.name} (Absolute)",
+    )
+
+
+def create_relative_feature_data(
+    playlist: Playlist,
+    feature_names: List[str],
+    batch_size: int = 6,
+    judge_batch_callback: Optional[Callable[[List[Song], str, int], List[Song]]] = None,
+) -> Playlist:
+    """Constructs relative feature data iteratively using batch upgrade decisions (README 2b, 3c).
+
+    Algorithm:
+    1. For each feature, all songs start with score 1.
+    2. At most half of the songs are upgraded to 2.
+    3. At most half of those are upgraded to 3, and so on until one song has the unique high score.
+    """
+    real_songs = [s.copy() for s in playlist.real_songs]
+    n = len(real_songs)
+    if n == 0:
+        return playlist.copy()
+
+    feature_scores: Dict[int, Dict[str, float]] = {s.id: {} for s in real_songs}
+
+    for f in feature_names:
+        scores = interactive_relative_grading(
+            songs=real_songs,
+            feature_name=f,
+            batch_size=batch_size,
+            judge_batch_callback=judge_batch_callback,
+        )
+        for s in real_songs:
+            feature_scores[s.id][f] = float(scores.get(s.id, 1))
+
+    new_songs: List[Song] = []
+    for s in real_songs:
+        new_songs.append(
+            Song(
+                id=s.id,
+                title=s.title,
+                artist=s.artist,
+                features=feature_scores[s.id],
+            )
+        )
+
+    return Playlist(
+        songs=new_songs,
+        data_type="relative",
+        feature_names=feature_names,
+        name=f"{playlist.name} (Relative)",
+    )
 
 
 def transform_relative_to_absolute(
@@ -309,20 +653,13 @@ def transform_relative_to_absolute(
     scale_min: float = 1.0,
     scale_max: float = 10.0,
 ) -> Playlist:
-    """Transforms relative tier scores (1..K) into an absolute scale [scale_min, scale_max].
+    """Transforms relative tier scores (1..K) into an absolute scale [scale_min, scale_max]."""
+    if playlist.data_type == "names_only" or not playlist.feature_names:
+        return playlist.copy()
 
-    Args:
-        playlist: Playlist with relative feature data.
-        scale_min: Minimum absolute scale value (default 1.0).
-        scale_max: Maximum absolute scale value (default 10.0).
-
-    Returns:
-        New Playlist with absolute feature scores.
-    """
     new_songs: List[Song] = []
     feature_names = playlist.feature_names
 
-    # Determine max tier for each feature
     max_tiers: Dict[str, float] = {}
     for f in feature_names:
         scores = [s.features[f] for s in playlist.real_songs if f in s.features]
@@ -334,7 +671,6 @@ def transform_relative_to_absolute(
             rel_val = s.features.get(f, 1.0)
             max_t = max_tiers[f]
             if max_t > 1.0:
-                # Linear mapping from [1, max_t] -> [scale_min, scale_max]
                 norm = (rel_val - 1.0) / (max_t - 1.0)
                 abs_val = scale_min + norm * (scale_max - scale_min)
             else:
@@ -351,55 +687,37 @@ def transform_relative_to_absolute(
             )
         )
 
-    return Playlist(songs=new_songs, data_type="absolute", feature_names=feature_names)
+    return Playlist(
+        songs=new_songs,
+        data_type="absolute",
+        feature_names=feature_names,
+        name=f"{playlist.name} (Absolute)",
+    )
 
 
 def transform_absolute_to_relative(playlist: Playlist) -> Playlist:
-    """Transforms absolute scores into geometric relative tiers as specified in README 3c:
-
-    Algorithm:
-    1. Start each song with a score of 1 for the feature.
-    2. At most half of the songs are upgraded to 2.
-    3. At most half of the songs with score 2 are upgraded to score 3, and so on until
-       one song has the unique high score for that feature.
-
-    For N songs:
-    - Tier 1: bottom half
-    - Tier 2: top half (except top quarter)
-    - ...
-    - Tier K: unique top 1 song
-
-    Returns:
-        New Playlist with relative feature data.
-    """
+    """Transforms absolute scores into geometric relative tiers as specified in README 3c."""
     real_songs = playlist.real_songs
     n = len(real_songs)
-    if n == 0:
+    if n == 0 or playlist.data_type == "names_only" or not playlist.feature_names:
         return playlist.copy()
 
     feature_names = playlist.feature_names
     new_features_by_song_id: Dict[int, Dict[str, float]] = {s.id: {} for s in real_songs}
 
     for f in feature_names:
-        # Sort songs by absolute feature score descending
-        # Use song id as tie-breaker for deterministic grading
         sorted_songs = sorted(
             real_songs,
             key=lambda s: (s.features.get(f, 0.0), -s.id),
             reverse=True,
         )
 
-        # Base score 1 for all songs
         scores: Dict[int, int] = {s.id: 1 for s in sorted_songs}
-
-        # Progressively upgrade top half
         current_eligible = list(sorted_songs)
         current_tier = 1
 
         while len(current_eligible) > 1:
             next_tier = current_tier + 1
-            # "At most half of the songs are upgraded"
-            # When eligible count is 2, half is 1, so exactly 1 song reaches top tier
             num_to_upgrade = max(1, len(current_eligible) // 2)
 
             upgraded = current_eligible[:num_to_upgrade]
@@ -424,7 +742,12 @@ def transform_absolute_to_relative(playlist: Playlist) -> Playlist:
             )
         )
 
-    return Playlist(songs=new_songs, data_type="relative", feature_names=feature_names)
+    return Playlist(
+        songs=new_songs,
+        data_type="relative",
+        feature_names=feature_names,
+        name=f"{playlist.name} (Relative)",
+    )
 
 
 def interactive_relative_grading(
@@ -433,22 +756,7 @@ def interactive_relative_grading(
     batch_size: int = 6,
     judge_batch_callback: Optional[Callable[[List[Song], str, int], List[Song]]] = None,
 ) -> Dict[int, int]:
-    """Generates relative feature scores iteratively via batch upgrade decisions (README 3c).
-
-    In each round, the songs currently at tier T are divided into batches.
-    For each batch, the judge selects at most half to upgrade to tier T+1.
-    Continues until exactly 1 song reaches the unique high score.
-
-    Args:
-        songs: List of songs to grade.
-        feature_name: Name of the feature being judged.
-        batch_size: Number of songs per comparison batch.
-        judge_batch_callback: Function taking (batch, feature_name, current_tier) and
-            returning the subset of songs chosen for upgrade (at most len(batch) // 2).
-
-    Returns:
-        Mapping of song.id -> relative tier score.
-    """
+    """Generates relative feature scores iteratively via batch upgrade decisions."""
     n = len(songs)
     if n == 0:
         return {}
@@ -459,14 +767,11 @@ def interactive_relative_grading(
     current_tier = 1
 
     while True:
-        # Eligible songs are those that reached current_tier
         eligible = [s for s in songs if scores[s.id] == current_tier]
         if len(eligible) <= 1:
             break
 
         next_tier = current_tier + 1
-
-        # Break eligible songs into batches
         batches = [
             eligible[i: i + batch_size]
             for i in range(0, len(eligible), batch_size)
@@ -477,21 +782,17 @@ def interactive_relative_grading(
             max_upgrades = max(1, len(batch) // 2)
             if judge_batch_callback is not None:
                 selected = judge_batch_callback(batch, feature_name, current_tier)
-                # Enforce at most half
                 selected = selected[:max_upgrades]
             else:
-                # Default heuristic: top half based on current feature score or order
                 selected = batch[:max_upgrades]
 
             for s in selected:
                 scores[s.id] = next_tier
                 upgraded_this_round.append(s)
 
-        # Safety check: if no one upgraded or everyone upgraded, force progress
         if not upgraded_this_round:
             scores[eligible[0].id] = next_tier
         elif len(upgraded_this_round) == len(eligible):
-            # Downgrade half to prevent infinite loop
             to_revert = upgraded_this_round[len(upgraded_this_round) // 2:]
             for s in to_revert:
                 scores[s.id] = current_tier
@@ -507,7 +808,7 @@ def generate_synthetic_playlist(
     data_type: str = "relative",
     random_seed: Optional[int] = 42,
 ) -> Playlist:
-    """Generates a synthetic playlist with reproducible feature data for testing."""
+    """Generates a synthetic playlist with reproducible data for testing."""
     if size < 8 or size > 128:
         raise ValueError("Synthetic playlist size must be between 8 and 128.")
 
@@ -540,13 +841,13 @@ def generate_synthetic_playlist(
     for i in range(size):
         title = titles[i % len(titles)] if i < len(titles) else f"Song_{i + 1}"
         artist = artists[i % len(artists)] if i < len(artists) else f"Artist_{i + 1}"
-        # Generate random absolute base scores between 1.0 and 10.0
         feat_dict = {f: float(rng.uniform(1.0, 10.0)) for f in features}
         songs.append(Song(id=i + 1, title=title, artist=artist, features=feat_dict))
 
     base_playlist = Playlist(songs=songs, data_type="absolute", feature_names=features)
 
-    if data_type == "relative":
+    if data_type == "names_only":
+        return base_playlist.to_names_only()
+    elif data_type == "relative":
         return transform_absolute_to_relative(base_playlist)
     return base_playlist
-

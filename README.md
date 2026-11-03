@@ -82,7 +82,10 @@ If the chosen match size for the tournament does not divide the total number of 
 ### Phase 1
 ```
 FavoriteSongTournament/
-├── data_loader.py            # Loads dataset from a filepath, user specifies if it is relative or absolute, methods to transform from one                                  to the other 
+├── data/                     # Cached datasets and metadata tracking
+│   ├── metadata.json         # Metadata and notes on dataset data types
+│   └── favorite_song_data.xlsx
+├── data_loader.py            # Loads, caches, and validates datasets, rubric/relative grading, scale transforms 
 ├── algorithms.py             # Stores logic for the tournament algorithms
 ├── results.py                # Displays the results of the tournament to the user (prints in console)
 ├── experiment.py             # Constructs the full experiment, including outputs

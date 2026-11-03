@@ -1,0 +1,17 @@
+{
+  "favorite_song_data": {
+    "name": "favorite_song_data",
+    "filename": "favorite_song_data.xlsx",
+    "filepath": "data/favorite_song_data.xlsx",
+    "data_type": "relative",
+    "feature_names": [
+      "Melody",
+      "Catchiness",
+      "Lyricism",
+      "Message"
+    ],
+    "song_count": 128,
+    "note": "Original benchmark dataset with relative feature scores (1 to 8).",
+    "created_at": "2026-11-03T16:56:18.223706"
+  }
+}

@@ -72,6 +72,7 @@ class TestSmokeIntegration(unittest.TestCase):
             runner_main(["--demo", "--format", "swiss", "--size", "8", "--match-size", "2", "--view", "winner"])
             runner_main(["--demo", "--format", "sorting", "--size", "8", "--match-size", "2", "--view", "notable"])
             runner_main(["--demo", "--format", "hybrid", "--size", "8", "--match-size", "2", "--view", "all"])
+            runner_main(["--demo", "--cached", "favorite_song_data", "--format", "swiss", "--size", "8", "--match-size", "2"])
         except SystemExit as e:
             self.assertEqual(e.code, 0)
 

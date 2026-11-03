@@ -64,6 +64,70 @@ class TestTournamentModels(unittest.TestCase):
         self.assertFalse(winner.is_dummy)
         self.assertEqual(rankings[0]["song"].id, winner.id)
 
+    def test_dummy_distribution_at_most_one_per_match(self) -> None:
+        """Verify Section 4 rule: at most one dummy per match (e.g. 13 songs, match size 3)."""
+        songs = [
+            Song(id=i + 1, title=f"Song_{i + 1}", artist="Artist", features={"F": float(i + 1)})
+            for i in range(13)
+        ]
+        playlist = Playlist(songs=songs, data_type="relative", feature_names=["F"])
+        swiss = SwissTournament(playlist, match_size=3, random_seed=42)
+        swiss.run_round()
+
+        # Total matches in round: ceil(13 / 3) = 5
+        self.assertEqual(len(swiss.match_history), 5)
+
+        dummy_counts = [sum(1 for s in m.ranked_outcome if s.is_dummy) for m in swiss.match_history]
+        real_counts = [len(m.songs_in_match) for m in swiss.match_history]
+
+        # No match should have > 1 dummy
+        self.assertLessEqual(max(dummy_counts), 1)
+        # Exactly 2 matches with 1 dummy, 3 matches with 0 dummies
+        self.assertEqual(dummy_counts.count(1), 2)
+        self.assertEqual(dummy_counts.count(0), 3)
+        # Real songs per match should be [3, 3, 3, 2, 2]
+        self.assertEqual(real_counts, [3, 3, 3, 2, 2])
+
+    def test_sorting_tournament_separator_insertion_ux(self) -> None:
+        """Verify Sorting tournament separator insertion callback correctly places candidates into pools."""
+        playlist = generate_synthetic_playlist(size=12, data_type="absolute", random_seed=42)
+
+        def synthetic_insert_cb(candidate: Song, ordered_seps: List[Song], mid: int, rnd: int) -> int:
+            # Place candidate based on sum of features compared to separators
+            c_score = sum(candidate.features.values())
+            for idx, sep in enumerate(ordered_seps):
+                if c_score > sum(sep.features.values()):
+                    return idx
+            return len(ordered_seps)
+
+        sorting = SortingTournament(
+            playlist=playlist,
+            match_size=3,
+            separator_insert_callback=synthetic_insert_cb,
+            random_seed=42,
+        )
+        rankings, winner = sorting.run()
+
+        self.assertEqual(len(rankings), 12)
+        self.assertGreater(sorting.manual_matches_count, 0)
+        self.assertGreater(sorting.automated_matches_count, 0)
+
+    def test_sorting_tournament_manual_completion_mode(self) -> None:
+        """Verify Sorting tournament when user chooses to manually complete all rounds."""
+        playlist = generate_synthetic_playlist(size=9, data_type="names_only", random_seed=42)
+
+        sorting = SortingTournament(
+            playlist=playlist,
+            match_size=3,
+            automate_subsequent_rounds=False,
+            random_seed=42,
+        )
+        rankings, winner = sorting.run()
+
+        self.assertEqual(len(rankings), 9)
+        self.assertEqual(sorting.automated_matches_count, 0)
+        self.assertGreater(sorting.manual_matches_count, 0)
+
     def test_swiss_tournament_match_points(self) -> None:
         """Verify that in a match of size M, rank r gets M - r points."""
         songs = [

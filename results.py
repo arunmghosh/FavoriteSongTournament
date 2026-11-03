@@ -42,26 +42,12 @@ def calculate_feature_correlations(
     """Calculates Pearson (r) and Spearman (rho) correlations between feature scores and tournament outcome.
 
     The tournament outcome metric used is inverted rank (N - rank + 1), where higher is better.
-    This guarantees monotonic alignment with tournament scores.
-
-    Args:
-        rankings: List of ranking dicts (must include 'rank' and 'song' or 'features').
-        feature_names: List of feature names to analyze.
-
-    Returns:
-        Dict mapping feature name to dictionary of statistical metrics:
-        {'pearson_r': float, 'pearson_p': float, 'spearman_rho': float, 'spearman_p': float}
     """
+    if not feature_names or len(rankings) < 2:
+        return {}
+
     n = len(rankings)
-    if n < 2:
-        return {
-            f: {"pearson_r": 0.0, "pearson_p": 1.0, "spearman_rho": 0.0, "spearman_p": 1.0}
-            for f in feature_names
-        }
-
-    # Inverted rank metric: rank 1 gets N, rank N gets 1
     outcomes = np.array([float(n - r["rank"] + 1) for r in rankings], dtype=np.float64)
-
     correlations: Dict[str, Dict[str, float]] = {}
 
     for f in feature_names:
@@ -70,7 +56,6 @@ def calculate_feature_correlations(
             dtype=np.float64,
         )
 
-        # Check for zero variance
         if np.std(feature_vals) == 0.0 or np.std(outcomes) == 0.0:
             correlations[f] = {
                 "pearson_r": 0.0,
@@ -80,7 +65,6 @@ def calculate_feature_correlations(
             }
             continue
 
-        # Compute Pearson correlation
         try:
             p_res = stats.pearsonr(feature_vals, outcomes)
             pearson_r = float(p_res.statistic)
@@ -88,7 +72,6 @@ def calculate_feature_correlations(
         except Exception:
             pearson_r, pearson_p = 0.0, 1.0
 
-        # Compute Spearman rank correlation
         try:
             s_res = stats.spearmanr(feature_vals, outcomes)
             spearman_rho = float(s_res.statistic)
@@ -96,7 +79,6 @@ def calculate_feature_correlations(
         except Exception:
             spearman_rho, spearman_p = 0.0, 1.0
 
-        # Protect against NaN values
         pearson_r = 0.0 if np.isnan(pearson_r) else pearson_r
         spearman_rho = 0.0 if np.isnan(spearman_rho) else spearman_rho
 
@@ -113,11 +95,10 @@ def calculate_feature_correlations(
 def generate_feature_insights(correlations: Dict[str, Dict[str, float]]) -> List[str]:
     """Generates descriptive, human-readable narrative comments on how each feature contributed to rankings."""
     if not correlations:
-        return ["No feature data available to analyze musical preferences."]
+        return ["No feature data provided for this tournament (names only). Feature correlation analysis omitted."]
 
     insights: List[str] = []
 
-    # Sort features by Pearson correlation descending
     sorted_features = sorted(
         correlations.items(),
         key=lambda item: item[1]["pearson_r"],
@@ -168,17 +149,7 @@ def display_results(
     notable_count: int = 5,
     print_output: bool = True,
 ) -> str:
-    """Formats and displays the complete tournament results in the console.
-
-    Args:
-        result: The TournamentResult object.
-        view_mode: 'all' (all songs), 'notable' (top N songs), or 'winner' (winner only).
-        notable_count: Number of notable songs to show if view_mode is 'notable'.
-        print_output: Whether to print directly to console.
-
-    Returns:
-        The formatted string output.
-    """
+    """Formats and displays the complete tournament results in the console."""
     lines: List[str] = []
 
     def p(line: str = "") -> None:
@@ -187,7 +158,7 @@ def display_results(
     p()
     p("=" * 80)
     p(" " * 26 + "🏆 TOURNAMENT WINNER 🏆")
-    p(" " * ((80 - len(result.winner.display_name)) // 2) + result.winner.display_name)
+    p(" " * max(0, (80 - len(result.winner.display_name)) // 2) + result.winner.display_name)
     p("=" * 80)
     p()
 
@@ -205,12 +176,11 @@ def display_results(
     p("-" * 80)
     p()
 
-    # Determine subset to display
     view_mode = view_mode.lower()
-    if view_mode == "winner":
+    if view_mode in ("winner", "one"):
         display_rankings = result.rankings[:1]
         ranking_title = "🏆 FINAL WINNER"
-    elif view_mode == "notable":
+    elif view_mode in ("notable", "top five", "top 5"):
         display_rankings = result.rankings[:max(1, notable_count)]
         ranking_title = f"🌟 NOTABLE SONGS (TOP {len(display_rankings)})"
     else:
@@ -220,10 +190,9 @@ def display_results(
     p(ranking_title)
     p("-" * 80)
 
-    # Build Header
     feat_cols = result.feature_names
-    feat_header = "".join(f"{f[:8]:>9}" for f in feat_cols)
-    header = f"{'Rank':<6}{'Song Title':<28}{'Artist':<20}{'Score':>7}{feat_header}"
+    feat_header = "".join(f"{f[:8]:>9}" for f in feat_cols) if feat_cols else ""
+    header = f"{'Rank':<6}{'Song Title':<30}{'Artist':<22}{'Score':>7}{feat_header}"
     p(header)
     p("-" * 80)
 
@@ -231,11 +200,11 @@ def display_results(
         rank = item["rank"]
         song: Song = item["song"]
         score = item["score"]
-        title_disp = (song.title[:25] + "...") if len(song.title) > 28 else song.title
-        artist_disp = (song.artist[:18] + "...") if len(song.artist) > 20 else song.artist
+        title_disp = (song.title[:27] + "...") if len(song.title) > 30 else song.title
+        artist_disp = (song.artist[:19] + "...") if len(song.artist) > 22 else song.artist
 
-        feats_str = "".join(f"{item.get('features', {}).get(f, 0.0):>9.1f}" for f in feat_cols)
-        row = f"{rank:<6}{title_disp:<28}{artist_disp:<20}{score:>7.1f}{feats_str}"
+        feats_str = "".join(f"{item.get('features', {}).get(f, 0.0):>9.1f}" for f in feat_cols) if feat_cols else ""
+        row = f"{rank:<6}{title_disp:<30}{artist_disp:<22}{score:>7.1f}{feats_str}"
         p(row)
 
     p("-" * 80)
@@ -268,9 +237,12 @@ def display_results(
             p(f"  {comment}")
         p("=" * 80)
         p()
+    else:
+        p("ℹ️  Feature Analysis: No song feature data was provided for this tournament (names only).")
+        p("=" * 80)
+        p()
 
     output_str = "\n".join(lines)
     if print_output:
         print(output_str)
     return output_str
-
