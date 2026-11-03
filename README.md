@@ -90,8 +90,7 @@ FavoriteSongTournament/
 ├── results.py                # Displays the results of the tournament to the user (prints in console)
 ├── experiment.py             # Constructs the full experiment, including outputs
 ├── runner.py                 # Driver code, takes in user input, runs tournament
-├── Kmeans_SongClusters.pdf   # Original mathematical problem specification
-├── favorite_song_data.xlsx   # Original dataset, given as relative data, can be transformed to absolute, can remain unused if user wants a                                 Swiss tournament
+├── favorite_song_data.xlsx   # My original dataset, provided as a model (has relative feature data)
 ├── tests/                    # Automated unit and integration test suite
 │   ├── test_models.py        # Tests the logic of the tournaments
 │   ├── test_math.py          # Ensure that all of the calculations are mathematically correct
