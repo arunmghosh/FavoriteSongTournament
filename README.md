@@ -33,10 +33,10 @@ After the user has configured the dataset they want to use for the tournament, t
 The results of the tournament are printed to the console. The user can choose to see the full rankings, the top 5 ranked songs, or just the top song. If they provided feature data (absolute or relative), they will be able to see an analysis of how well each feature correlates to those rankings. 
 
 **Phase 2: File Output** 
-The only change made from phase 1 in this next phase is that the output will be a text or markdown file (.txt, .md, or .pdf). This gives the user something to keep from each run of the program (each of these files are stored in the results subfolder). The user can choose the desired format. 
+The only change made from phase 1 in this next phase is that the output will be a text or markdown file (.txt, .md, or .pdf). This gives the user something to keep from each run of the program (each of these files are stored in the reports subfolder). The user can choose the desired format. I also added functionality for the user to delete certain datasets from the cache if they want. Upon launching the program, users are prompted if they want to import a dataset, draw from the existing cache, or manage the cache. Finally, I added a "restart" feature where the user types "R" into any prompt, and it takes them back to the initial question I just described. 
 
 **Phase 3: Python Executable File (.exe)** 
-In Phase 3, I want to create a nice GUI and make it easier for the user to run the application. Instead of having to clone the repository and run driver code in Python, they can just download and run an executable file (.exe). When the file starts running, the user is prompted to select a cached playlist or import a new one. Then, they configure the data they want to use in the tournament (see 'Phase 1: Console Output' above). Next, the screen is divided into sections (buttons) that each represent a tournament format, and a textbox explaining them. After a selection is made, another dialog box appears to let the user choose a match size. 
+In Phase 3, I want to create a nice GUI and make it easier for the user to run the application. Instead of having to clone the repository and run driver code in Python, they can just download and run an executable file (.exe). When the file starts running, the user is prompted to select a cached playlist or import a new one (or manage the cache). Then, they configure the data they want to use in the tournament (see 'Phase 1: Console Output' above). Next, the screen is divided into sections (buttons) that each represent a tournament format, and a textbox explaining them. After a selection is made, another dialog box appears to let the user choose a match size. 
 
 Once the tournament is set up, the match window opens. The user is shown a match that they have to call, which feeds information to the program. Once the user completes all of the matches of the first round, they are prompted to automate the rest of the tournament or stick to manual decision-making. Then, when the tournament is finished, the results will be displayed on the screen. The user can select which subset of the rankings they want to see (one, top five, all). One section of the screen will have the ranked list, another will prominently show the winner of the tournament, and the last section will provide insights about how each feature contributed to the rankings (correlation between feature score and final score in the tournament). The user will be able to click a button and download the results in a format they choose (.txt, .md, .pdf). 
 
@@ -79,12 +79,13 @@ Since the user is in control of the relative data, they have more influence over
 If the chosen match size for the tournament does not divide the total number of songs, pad the list with dummy songs so the match size remains constant. The user should never see dummy songs, and dummy songs automatically get no points in a match so they don't affect the rankings. There should also be at most one dummy song in a match (for instance, if there are 13 songs and the match size is 3, there will be 3 matches of 3 real songs each, and 2 matches of 2 real songs and 1 dummy each).
 
 ## 5. Codebase Architecture
-### Phase 1
+### Phase 2
 ```
 FavoriteSongTournament/
 ├── data/                     # Cached datasets and metadata tracking
 │   ├── metadata.json         # Metadata and notes on dataset data types
 │   └── favorite_song_data.xlsx
+├── reports/                  # .txt, .pdf, or .md files with tournament results
 ├── data_loader.py            # Loads, caches, and validates datasets, rubric/relative grading, scale transforms 
 ├── algorithms.py             # Stores logic for the tournament algorithms
 ├── results.py                # Displays the results of the tournament to the user (prints in console)
@@ -98,7 +99,6 @@ FavoriteSongTournament/
 │   └── test_smoke.py         # Rapid end-to-end integration smoke test
 └── README.md                 # Project specification, experiment documentation, architecture, and usage
 ```
-
 ## 6. Installation & Usage
 ### Phase 1
 #### Prerequisites
