@@ -100,7 +100,7 @@ FavoriteSongTournament/
 └── README.md                 # Project specification, experiment documentation, architecture, and usage
 ```
 ## 6. Installation & Usage
-### Phase 1
+### Phase 2: File Output & Reports
 #### Prerequisites
 The project requires Python 3.8+ with the following packages:
 - `pandas`
@@ -108,10 +108,11 @@ The project requires Python 3.8+ with the following packages:
 - `numpy`
 - `scipy`
 - `torch`
+- `reportlab`
 
 Install dependencies via pip:
 ```bash
-pip install pandas openpyxl numpy scipy torch
+pip install pandas openpyxl numpy scipy torch reportlab
 ```
 
 #### Running the Interactive Console Tournament
@@ -120,32 +121,47 @@ Run the interactive runner CLI:
 python3 runner.py
 ```
 You will be prompted to:
-1. Enter your playlist size (between 8 and 128 songs).
-2. Choose your data source (use the included `favorite_song_data.xlsx`, specify a custom file, or generate a synthetic playlist).
-3. Select a tournament format:
+1. **Initial Action**:
+   - **Draw from existing cache**: Select any previously cached dataset stored in `data/`.
+   - **Import a new dataset**: Provide a path to a spreadsheet (`.xlsx` or `.csv`) and specify its data kind (`names_only`, `absolute`, or `relative`), with step-by-step guidance to construct absolute rubrics or relative rankings if desired.
+   - **Manage the cache**: Inspect cached datasets, song counts, data types, notes, creation dates, and permanently delete datasets no longer needed.
+   - **Generate synthetic dataset**: Rapidly test with synthetic songs and feature attributes.
+2. **Playlist Size & Shuffling**: Enter playlist size (between 8 and size of dataset). A random subset is drawn non-destructively and shuffled internally before tournament start.
+3. **Tournament Format**:
    - **Swiss**: No initial data needed. Evaluates matches directly in score pools with Strength of Schedule tiebreakers.
    - **Sorting**: Multi-pivot quicksort algorithm. You rank matches manually in Round 1, training a Deep Q-Network (DQN) to automate subsequent rounds.
    - **Hybrid**: Analyzes relative criteria, filters out strictly dominated songs (songs strictly worse across all features), and runs a Swiss or Sorting tournament on surviving songs.
-4. Select comparison criteria (default suggestions: Melody, Catchiness, Lyricism, Message, or custom criteria).
-5. Choose match size (2 to 8 songs per match).
-6. Rank songs in each match.
-7. View your results: winner announcement, complete rankings table, and Pearson/Spearman feature correlations with music taste insights.
+4. **Match Size**: Choose match size (2 to 8 songs per match). Matches are automatically padded with at most one invisible dummy song if needed.
+5. **Match Adjudication**: Rank songs in each match.
+6. **Results Display**: View results in your preferred view mode: complete rankings, notable top 5 songs, or winner only, alongside Pearson ($r$) and Spearman ($\rho$) correlation insights.
+7. **File Export to `reports/`**: Save your tournament results directly to the `reports/` directory as:
+   - Plain text report (`.txt`)
+   - GitHub-Flavored Markdown report (`.md`)
+   - Multi-page styled PDF document (`.pdf`)
+   - All formats simultaneously
+
+#### Global Hotkeys (Usable at Any Prompt)
+- **`Q` or `q`**: Cleanly quit the tournament at any prompt.
+- **`R` or `r`**: Restart the setup process at any prompt and return to the initial launch menu.
 
 #### Automated Demo Mode
-Run a quick, non-interactive demonstration:
+Run a quick, non-interactive demonstration with optional file export:
 ```bash
-# Swiss Tournament demo
-python3 runner.py --demo --format swiss --size 16 --match-size 2
+# Swiss Tournament demo with PDF export
+python3 runner.py --demo --format swiss --size 16 --match-size 2 --export pdf
 
-# Sorting Tournament demo with DQN automation
-python3 runner.py --demo --format sorting --size 16 --match-size 3
+# Sorting Tournament demo with DQN automation and Markdown export
+python3 runner.py --demo --format sorting --size 16 --match-size 3 --export md
 
-# Hybrid Tournament demo with dominance filtering
-python3 runner.py --demo --format hybrid --size 16 --match-size 2
+# Hybrid Tournament demo with dominance filtering and Text export
+python3 runner.py --demo --format hybrid --size 16 --match-size 2 --export txt
+
+# Export all formats simultaneously
+python3 runner.py --demo --format swiss --size 8 --match-size 2 --export all
 ```
 
 #### Running Automated Tests
-Run all unit, mathematical, pipeline, and integration smoke tests:
+Run all unit, mathematical, pipeline, smoke, and file export tests:
 ```bash
 python3 -m unittest discover tests
 ```

@@ -201,6 +201,164 @@ class TestTournamentExperiment(unittest.TestCase):
         output = exp.display(view_mode="all")
         self.assertIn("names only", output.lower())
 
+    def test_export_report_formats(self) -> None:
+        """Verify report generation and export for txt, md, pdf, and all formats (Phase 2)."""
+        from results import (
+            export_report,
+            generate_markdown_report,
+            generate_text_report,
+            generate_pdf_report,
+        )
+
+        exp = TournamentExperiment(
+            playlist_size=8,
+            tournament_format="swiss",
+            match_size=2,
+            random_seed=42,
+        )
+        result = exp.run()
+
+        # 1. Text report
+        txt_content = generate_text_report(result)
+        self.assertIn("TOURNAMENT WINNER", txt_content)
+        self.assertIn("COMPLETE TOURNAMENT RANKINGS", txt_content)
+
+        txt_file = exp.export(file_format="txt", filename="test_export_txt")
+        self.assertTrue(Path(txt_file).exists())
+        self.assertGreater(Path(txt_file).stat().st_size, 0)
+        Path(txt_file).unlink()
+
+        # 2. Markdown report
+        md_content = generate_markdown_report(result)
+        self.assertIn("# 🎵 Favorite Song Tournament - Final Results", md_content)
+        self.assertIn("| Rank | Song Title | Artist |", md_content)
+
+        md_file = exp.export(file_format="md", filename="test_export_md")
+        self.assertTrue(Path(md_file).exists())
+        self.assertGreater(Path(md_file).stat().st_size, 0)
+        Path(md_file).unlink()
+
+        # 3. PDF report
+        pdf_file = exp.export(file_format="pdf", filename="test_export_pdf")
+        self.assertTrue(Path(pdf_file).exists())
+        self.assertGreater(Path(pdf_file).stat().st_size, 0)
+        with open(pdf_file, "rb") as f:
+            header = f.read(5)
+            self.assertEqual(header, b"%PDF-")
+        Path(pdf_file).unlink()
+
+        # 4. All formats
+        all_files = exp.export(file_format="all", filename="test_export_all")
+        self.assertIsInstance(all_files, dict)
+        self.assertIn("txt", all_files)
+        self.assertIn("md", all_files)
+        self.assertIn("pdf", all_files)
+        for fmt, p in all_files.items():
+            self.assertTrue(Path(p).exists())
+            self.assertGreater(Path(p).stat().st_size, 0)
+            Path(p).unlink()
+
+    def test_delete_cached_dataset(self) -> None:
+        """Verify deleting a cached dataset removes files and updates metadata.json (Phase 2)."""
+        from data_loader import (
+            Playlist,
+            Song,
+            delete_cached_dataset,
+            list_cached_datasets,
+            save_dataset_to_cache,
+        )
+
+        songs = [Song(i, f"Song_{i}", f"Artist_{i}") for i in range(1, 9)]
+        playlist = Playlist(songs=songs, data_type="names_only", name="TempDeleteTest")
+
+        save_path = save_dataset_to_cache(playlist, name="temp_delete_test", note="Temporary test")
+        self.assertTrue(save_path.exists())
+
+        # Check listed
+        cached = list_cached_datasets()
+        self.assertTrue(any(d["name"] == "temp_delete_test" for d in cached))
+
+        # Delete it
+        deleted = delete_cached_dataset("temp_delete_test")
+        self.assertTrue(deleted)
+        self.assertFalse(save_path.exists())
+
+        # Check unlisted
+        cached_after = list_cached_datasets()
+        self.assertFalse(any(d["name"] == "temp_delete_test" for d in cached_after))
+
+        # Second deletion should return False
+        self.assertFalse(delete_cached_dataset("temp_delete_test"))
+
+    def test_create_custom_criteria_absolute_from_existing_names(self) -> None:
+        """Verify using an existing song list and creating custom criteria with absolute rubrics."""
+        from unittest.mock import patch
+        from data_loader import load_cached_dataset, Playlist
+        from runner import (
+            create_absolute_data_interactive,
+            select_criteria_interactive,
+        )
+
+        base_playlist = load_cached_dataset("favorite_song_data")
+        names_only = base_playlist.get_random_subset(8, random_seed=42).to_names_only()
+        self.assertEqual(names_only.data_type, "names_only")
+        self.assertEqual(len(names_only.feature_names), 0)
+
+        # 1. Test custom criteria selection
+        with patch("builtins.input", side_effect=["2", "Energy, Rhythm"]):
+            custom_features = select_criteria_interactive()
+            self.assertEqual(custom_features, ["Energy", "Rhythm"])
+
+        # 2. Test interactive absolute scoring with standard rubric (1-10) and batch size 8
+        # Inputs:
+        # rubric choice: 1 (Standard 1-10 scale)
+        # batch size: 8
+        # 8 songs * 2 features = 16 scores (provide "7" for Energy, "8" for Rhythm)
+        scores = ["7", "8"] * 8
+        mock_inputs = iter(["1", "8"] + scores)
+        with patch("builtins.input", side_effect=lambda *_: next(mock_inputs)):
+            scored_playlist = create_absolute_data_interactive(names_only, features=custom_features)
+
+        self.assertEqual(scored_playlist.data_type, "absolute")
+        self.assertEqual(scored_playlist.feature_names, ["Energy", "Rhythm"])
+        self.assertEqual(len(scored_playlist), 8)
+        for song in scored_playlist:
+            self.assertIn("Energy", song.features)
+            self.assertIn("Rhythm", song.features)
+
+    def test_create_custom_criteria_relative_from_existing_names(self) -> None:
+        """Verify using an existing song list and creating custom criteria with relative promotions."""
+        from unittest.mock import patch
+        from data_loader import load_cached_dataset
+        from runner import (
+            create_relative_data_interactive,
+            select_criteria_interactive,
+        )
+
+        base_playlist = load_cached_dataset("favorite_song_data")
+        names_only = base_playlist.get_random_subset(8, random_seed=42).to_names_only()
+
+        # 1. Test custom criteria selection
+        with patch("builtins.input", side_effect=["2", "Vibe, Vocals"]):
+            custom_features = select_criteria_interactive()
+            self.assertEqual(custom_features, ["Vibe", "Vocals"])
+
+        # 2. Test interactive relative scoring
+        # batch_size: 4
+        # upgrade promotions: empty string or "1 2"
+        mock_inputs = iter(["4"] + ["1 2"] * 50)
+        with patch("builtins.input", side_effect=lambda *_: next(mock_inputs)):
+            rel_playlist = create_relative_data_interactive(names_only, features=custom_features)
+
+        self.assertEqual(rel_playlist.data_type, "relative")
+        self.assertEqual(rel_playlist.feature_names, ["Vibe", "Vocals"])
+        self.assertEqual(len(rel_playlist), 8)
+        for song in rel_playlist:
+            self.assertIn("Vibe", song.features)
+            self.assertIn("Vocals", song.features)
+            self.assertGreaterEqual(song.features["Vibe"], 1.0)
+            self.assertGreaterEqual(song.features["Vocals"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

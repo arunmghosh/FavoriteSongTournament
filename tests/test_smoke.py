@@ -114,6 +114,112 @@ class TestSmokeIntegration(unittest.TestCase):
         with patch("builtins.input", return_value="Q"):
             runner_main([])
 
+    def test_user_restart_with_r_at_prompts(self) -> None:
+        """Verify that entering 'R' at any prompt raises UserRestartTournament (Phase 2)."""
+        from unittest.mock import patch
+        from runner import (
+            UserRestartTournament,
+            safe_input,
+            prompt_int,
+            prompt_choice,
+            prompt_yes_no,
+        )
+
+        with patch("builtins.input", return_value="R"):
+            with self.assertRaises(UserRestartTournament):
+                safe_input("Enter: ")
+
+        with patch("builtins.input", return_value="r"):
+            with self.assertRaises(UserRestartTournament):
+                safe_input("Enter: ")
+
+        with patch("builtins.input", return_value="restart"):
+            with self.assertRaises(UserRestartTournament):
+                safe_input("Enter: ")
+
+        with patch("builtins.input", return_value="R"):
+            with self.assertRaises(UserRestartTournament):
+                prompt_int("Enter number", 1, 10)
+
+        with patch("builtins.input", return_value="r"):
+            with self.assertRaises(UserRestartTournament):
+                prompt_choice("Select", ["A", "B"])
+
+        with patch("builtins.input", return_value="R"):
+            with self.assertRaises(UserRestartTournament):
+                prompt_yes_no("Proceed?")
+
+    def test_runner_restart_interactive_loop(self) -> None:
+        """Verify that entering 'R' restarts the prompt loop and then 'Q' quits cleanly."""
+        from unittest.mock import patch
+
+        # First prompt receives 'R', which restarts loop, second receives 'Q' to exit cleanly
+        inputs = iter(["R", "Q"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            runner_main([])
+
+    def test_smoke_runner_cli_export(self) -> None:
+        """Verify runner CLI demo execution with --export flag (Phase 2)."""
+        reports_dir = Path("reports")
+        # Run demo with --export txt
+        runner_main(["--demo", "--format", "swiss", "--size", "8", "--match-size", "2", "--export", "txt"])
+        txt_files = list(reports_dir.glob("tournament_swiss_*.txt"))
+        self.assertGreater(len(txt_files), 0)
+
+        # Run demo with --export md
+        runner_main(["--demo", "--format", "swiss", "--size", "8", "--match-size", "2", "--export", "md"])
+        md_files = list(reports_dir.glob("tournament_swiss_*.md"))
+        self.assertGreater(len(md_files), 0)
+
+        # Run demo with --export pdf
+        runner_main(["--demo", "--format", "swiss", "--size", "8", "--match-size", "2", "--export", "pdf"])
+        pdf_files = list(reports_dir.glob("tournament_swiss_*.pdf"))
+        self.assertGreater(len(pdf_files), 0)
+
+        # Clean up exported test demo files
+        for f in txt_files + md_files + pdf_files:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    def test_smoke_manage_cache_view_full_contents(self) -> None:
+        """Verify manage cache displays full cache, indices, and song contents."""
+        from unittest.mock import patch
+        from runner import manage_cache_interactive
+
+        # Action 1 (View full dataset), Index 1, Enter to return, Action 3 (Return to main menu)
+        inputs = iter(["1", "1", "", "3"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            manage_cache_interactive()
+
+    def test_smoke_configure_dataset_names_to_custom_criteria(self) -> None:
+        """Verify configuring an existing dataset by stripping to names, then defining custom criteria."""
+        import itertools
+        from unittest.mock import patch
+        from runner import configure_dataset_interactive
+
+        # Flow:
+        # 1. How to proceed: "1" (Draw from cache)
+        # 2. Select dataset: "1" (favorite_song_data)
+        # 3. Configure mode: "2" (Use only song names)
+        # 4. Proceed with names: "2" (Create additional feature data)
+        # 5. Type of data: "1" (Absolute feature data)
+        # 6. Criteria: "2" (Enter custom criteria)
+        # 7. Custom criteria input: "Vibe, Groove"
+        # 8. Rubric scale: "1" (Standard 1-10)
+        # 9. Batch size: "128"
+        # 10. Default scores / empty string until cache prompt "n"
+        specific_inputs = ["1", "1", "2", "2", "1", "2", "Vibe, Groove", "1", "128"]
+        # Supply 128*2 empty strings for scores, then "n" for cache prompt, then repeat ""
+        inputs = itertools.chain(specific_inputs, [""] * 256, ["n"], itertools.repeat(""))
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            playlist = configure_dataset_interactive()
+
+        self.assertEqual(playlist.data_type, "absolute")
+        self.assertEqual(playlist.feature_names, ["Vibe", "Groove"])
+        self.assertEqual(len(playlist), 128)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -491,6 +491,58 @@ def load_cached_dataset(
     return playlist
 
 
+def delete_cached_dataset(
+    dataset_name: str,
+    data_dir: Union[str, Path] = DATA_DIR,
+) -> bool:
+    """Deletes a cached dataset and removes it from metadata.
+
+    Args:
+        dataset_name: Name of dataset to delete.
+        data_dir: Cache data directory.
+
+    Returns:
+        True if the dataset was found and deleted, False otherwise.
+    """
+    dir_path = Path(data_dir)
+    meta_file = dir_path / "metadata.json"
+
+    deleted = False
+    metadata: Dict[str, Any] = {}
+
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except Exception:
+            metadata = {}
+
+    if dataset_name in metadata:
+        info = metadata.pop(dataset_name)
+        file_path = Path(info.get("filepath", dir_path / info.get("filename", "")))
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                deleted = True
+            except Exception:
+                pass
+        with open(meta_file, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+        deleted = True
+
+    # Also clean up any matching file directly in data_dir
+    for ext in (".xlsx", ".xls", ".csv"):
+        f_cand = dir_path / f"{dataset_name}{ext}"
+        if f_cand.exists():
+            try:
+                f_cand.unlink()
+                deleted = True
+            except Exception:
+                pass
+
+    return deleted
+
+
 # ==============================================================================
 # DATASET LOADING & CREATION
 # ==============================================================================

@@ -33,9 +33,11 @@ from data_loader import (
     transform_relative_to_absolute,
 )
 from results import (
+    REPORTS_DIR,
     TournamentResult,
     calculate_feature_correlations,
     display_results,
+    export_report,
     generate_feature_insights,
 )
 
@@ -224,3 +226,23 @@ class TournamentExperiment:
         if self.result is None:
             raise RuntimeError("Experiment has not been run yet. Call run() first.")
         return display_results(self.result, view_mode=view_mode, notable_count=notable_count)
+
+    def export(
+        self,
+        file_format: str = "txt",
+        output_dir: Union[str, Path] = REPORTS_DIR,
+        filename: Optional[str] = None,
+        view_mode: str = "all",
+        notable_count: int = 5,
+    ) -> Union[Path, Dict[str, Path]]:
+        """Exports tournament results to .txt, .md, or .pdf in the reports subfolder."""
+        if self.result is None:
+            raise RuntimeError("Experiment has not been run yet. Call run() first.")
+        return export_report(
+            result=self.result,
+            file_format=file_format,
+            output_dir=output_dir,
+            filename=filename,
+            view_mode=view_mode,
+            notable_count=notable_count,
+        )
