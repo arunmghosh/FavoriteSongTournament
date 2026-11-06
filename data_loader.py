@@ -286,29 +286,36 @@ def ensure_cache_dir(data_dir: Union[str, Path] = DATA_DIR) -> Path:
     dir_path.mkdir(parents=True, exist_ok=True)
 
     meta_file = dir_path / "metadata.json"
-    if not meta_file.exists():
-        initial_metadata: Dict[str, Any] = {}
-        # If favorite_song_data.xlsx exists in root, copy/register it
-        root_data = Path("favorite_song_data.xlsx")
-        target_data = dir_path / "favorite_song_data.xlsx"
-        if root_data.exists() and not target_data.exists():
-            import shutil
-            shutil.copy2(root_data, target_data)
+    metadata: Dict[str, Any] = {}
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except Exception:
+            metadata = {}
 
-        if target_data.exists():
-            initial_metadata["favorite_song_data"] = {
-                "name": "favorite_song_data",
-                "filename": "favorite_song_data.xlsx",
-                "filepath": str(target_data),
-                "data_type": "relative",
-                "feature_names": ["Melody", "Catchiness", "Lyricism", "Message"],
-                "song_count": 128,
-                "note": "Original benchmark dataset with relative feature scores (1 to 8).",
-                "created_at": datetime.now().isoformat(),
-            }
+    root_data = Path("favorite_song_data.xlsx")
+    target_data = dir_path / "favorite_song_data.xlsx"
+    if root_data.exists() and not target_data.exists():
+        import shutil
+        shutil.copy2(root_data, target_data)
 
+    if target_data.exists() and "favorite_song_data" not in metadata:
+        metadata["favorite_song_data"] = {
+            "name": "favorite_song_data",
+            "filename": "favorite_song_data.xlsx",
+            "filepath": str(target_data),
+            "data_type": "relative",
+            "feature_names": ["Melody", "Catchiness", "Lyricism", "Message"],
+            "song_count": 128,
+            "note": "Original benchmark dataset with relative feature scores (1 to 8).",
+            "created_at": datetime.now().isoformat(),
+        }
         with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(initial_metadata, f, indent=2)
+            json.dump(metadata, f, indent=2)
+    elif not meta_file.exists():
+        with open(meta_file, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
 
     return dir_path
 
@@ -363,11 +370,36 @@ def save_dataset_to_cache(
     playlist: Playlist,
     name: str,
     note: str = "",
+    data_type: Optional[str] = None,
     file_format: str = "xlsx",
     data_dir: Union[str, Path] = DATA_DIR,
 ) -> Path:
-    """Saves a playlist to the cache data directory with descriptive metadata."""
+    """Saves a playlist to the cache data directory with descriptive metadata.
+
+    Args:
+        playlist: The Playlist to save.
+        name: Name for the dataset.
+        note: Descriptive note about the dataset.
+        data_type: Optional explicit data kind ('names_only', 'absolute', 'relative').
+        file_format: 'xlsx' or 'csv'.
+        data_dir: Path to data directory.
+
+    Returns:
+        Path to saved file.
+    """
     dir_path = ensure_cache_dir(data_dir)
+
+    target_playlist = playlist.copy()
+    if data_type is not None:
+        dt = data_type.lower()
+        if dt == "names_only":
+            target_playlist = target_playlist.to_names_only()
+        elif dt == "absolute" and target_playlist.data_type == "relative":
+            target_playlist = transform_relative_to_absolute(target_playlist)
+        elif dt == "relative" and target_playlist.data_type == "absolute":
+            target_playlist = transform_absolute_to_relative(target_playlist)
+        elif dt in ("names_only", "absolute", "relative"):
+            target_playlist.data_type = dt
 
     # Sanitize name
     clean_name = "".join(c for c in name if c.isalnum() or c in ("_", "-", " ")).strip()
@@ -378,7 +410,7 @@ def save_dataset_to_cache(
     filename = f"{clean_name}.{file_format.lstrip('.')}"
     file_path = dir_path / filename
 
-    df = playlist.to_dataframe()
+    df = target_playlist.to_dataframe()
     if file_format.lower() in ("xlsx", "xls"):
         df.to_excel(file_path, index=False)
     else:
@@ -398,10 +430,10 @@ def save_dataset_to_cache(
         "name": clean_name,
         "filename": filename,
         "filepath": str(file_path),
-        "data_type": playlist.data_type,
-        "feature_names": playlist.feature_names,
-        "song_count": len(playlist),
-        "note": note or f"Cached playlist with {len(playlist)} songs ({playlist.data_type}).",
+        "data_type": target_playlist.data_type,
+        "feature_names": target_playlist.feature_names,
+        "song_count": len(target_playlist),
+        "note": note or f"Cached playlist with {len(target_playlist)} songs ({target_playlist.data_type}).",
         "created_at": datetime.now().isoformat(),
     }
 
@@ -439,6 +471,8 @@ def load_cached_dataset(
         target_path = dir_path / dataset_name
     elif Path(dataset_name).exists():
         target_path = Path(dataset_name)
+    elif Path(f"{dataset_name}.xlsx").exists():
+        target_path = Path(f"{dataset_name}.xlsx")
     else:
         raise FileNotFoundError(f"Cached dataset '{dataset_name}' not found in {dir_path}.")
 

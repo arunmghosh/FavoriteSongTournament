@@ -12,6 +12,36 @@
     ],
     "song_count": 128,
     "note": "Original benchmark dataset with relative feature scores (1 to 8).",
-    "created_at": "2026-11-03T16:56:18.223706"
+    "created_at": "2026-11-06T17:04:32.723738"
+  },
+  "absolute_example": {
+    "name": "absolute_example",
+    "filename": "absolute_example.xlsx",
+    "filepath": "data/absolute_example.xlsx",
+    "data_type": "absolute",
+    "feature_names": [
+      "Progression",
+      "Relatability",
+      "Commentary",
+      "Catchiness"
+    ],
+    "song_count": 32,
+    "note": "The example dataset for absolute feature data",
+    "created_at": "2026-11-06T17:08:15.097489"
+  },
+  "relative_example": {
+    "name": "relative_example",
+    "filename": "relative_example.xlsx",
+    "filepath": "data/relative_example.xlsx",
+    "data_type": "relative",
+    "feature_names": [
+      "Melody",
+      "Catchiness",
+      "Lyricism",
+      "Message"
+    ],
+    "song_count": 128,
+    "note": "The example dataset for relative feature data",
+    "created_at": "2026-11-06T17:13:55.162767"
   }
 }

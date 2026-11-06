@@ -3,12 +3,14 @@
 Follows README specification:
 1. Choose between using an existing (cached) dataset from `data/` or creating a new one from file.
 2. Select data mode: names only, absolute feature data, or relative feature data.
+   - When importing or caching a dataset, the user explicitly specifies what kind it is.
 3. Step-by-step guidance for creating new feature data (absolute rubric or relative iterative upgrades).
 4. Option to cache new/converted datasets to `data/` with descriptive notes.
 5. Select playlist size (8 to dataset size); random subsetting and internal shuffling.
 6. Select tournament format (Swiss, Sorting, Hybrid) and match size (2-8).
 7. For Sorting: separator insertion prompt UX, followed by automation choice (DQN vs manual).
 8. Results output selection: full rankings, top 5 (notable), or winner only, with taste correlations.
+9. Enter 'Q' at any point to quit the current run cleanly.
 """
 
 from __future__ import annotations
@@ -37,13 +39,30 @@ from experiment import TournamentExperiment
 from results import display_results
 
 
+class UserQuitTournament(Exception):
+    """Raised when the user enters 'Q' or 'q' at any prompt to quit the current run."""
+    pass
+
+
+def safe_input(prompt_text: str = "") -> str:
+    """Reads input from the console and raises UserQuitTournament if 'Q' or 'q' is entered."""
+    try:
+        raw = input(prompt_text).strip()
+    except (EOFError, KeyboardInterrupt):
+        raise UserQuitTournament("User requested exit.")
+    if raw.lower() in ("q", "quit"):
+        raise UserQuitTournament("User requested exit.")
+    return raw
+
+
 def print_banner() -> None:
     """Displays the application welcome banner."""
     print("=" * 80)
     print(" " * 24 + "🎵 FAVORITE SONG TOURNAMENT 🎵")
     print(" " * 26 + "Phase 1: Console Prototype")
     print("=" * 80)
-    print("Discover your musical taste and crown your favorite song of the moment!\n")
+    print("Discover your musical taste and crown your favorite song of the moment!")
+    print("Tip: Enter 'Q' at any prompt to quit the current tournament run.\n")
 
 
 def prompt_int(
@@ -52,21 +71,21 @@ def prompt_int(
     max_val: int,
     default_val: Optional[int] = None,
 ) -> int:
-    """Prompts the user for an integer within [min_val, max_val]."""
+    """Prompts the user for an integer within [min_val, max_val] or 'Q' to quit."""
     default_str = f" [Default: {default_val}]" if default_val is not None else ""
     while True:
         try:
-            raw = input(f"{prompt_text}{default_str}: ").strip()
+            raw = safe_input(f"{prompt_text}{default_str}: ")
             if not raw and default_val is not None:
                 return default_val
             val = int(raw)
             if min_val <= val <= max_val:
                 return val
-            print(f"  ⚠️  Please enter an integer between {min_val} and {max_val}.")
-        except (ValueError, EOFError):
-            if default_val is not None:
+            print(f"  ⚠️  Please enter an integer between {min_val} and {max_val} (or 'Q' to quit).")
+        except ValueError:
+            if default_val is not None and not raw:
                 return default_val
-            print(f"  ⚠️  Invalid input. Please enter a valid number.")
+            print(f"  ⚠️  Invalid input. Please enter a valid number (or 'Q' to quit).")
 
 
 def prompt_choice(
@@ -74,39 +93,36 @@ def prompt_choice(
     options: List[str],
     default_index: int = 0,
 ) -> int:
-    """Presents a list of options and prompts the user to select one."""
+    """Presents a list of options and prompts the user to select one or enter 'Q' to quit."""
     print(prompt_text)
     for idx, opt in enumerate(options, 1):
         def_tag = " (Default)" if idx - 1 == default_index else ""
         print(f"  [{idx}] {opt}{def_tag}")
     while True:
         try:
-            raw = input(f"Select option (1-{len(options)}) [Default: {default_index + 1}]: ").strip()
+            raw = safe_input(f"Select option (1-{len(options)}) [Default: {default_index + 1}]: ")
             if not raw:
                 return default_index
             choice = int(raw) - 1
             if 0 <= choice < len(options):
                 return choice
-            print(f"  ⚠️  Please enter a number between 1 and {len(options)}.")
-        except (ValueError, EOFError):
-            return default_index
+            print(f"  ⚠️  Please enter a number between 1 and {len(options)} (or 'Q' to quit).")
+        except ValueError:
+            print(f"  ⚠️  Invalid choice. Please enter a number from 1 to {len(options)} (or 'Q' to quit).")
 
 
 def prompt_yes_no(prompt_text: str, default_yes: bool = True) -> bool:
-    """Prompts the user for a yes/no question."""
+    """Prompts the user for a yes/no question or 'Q' to quit."""
     def_hint = "[Y/n]" if default_yes else "[y/N]"
     while True:
-        try:
-            raw = input(f"{prompt_text} {def_hint}: ").strip().lower()
-            if not raw:
-                return default_yes
-            if raw in ("y", "yes"):
-                return True
-            if raw in ("n", "no"):
-                return False
-            print("  ⚠️  Please enter 'y' or 'n'.")
-        except (ValueError, EOFError):
+        raw = safe_input(f"{prompt_text} {def_hint}: ").lower()
+        if not raw:
             return default_yes
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  ⚠️  Please enter 'y' or 'n' (or 'Q' to quit).")
 
 
 def console_judge_callback(songs: List[Song], match_id: int, round_num: int) -> List[Song]:
@@ -123,18 +139,18 @@ def console_judge_callback(songs: List[Song], match_id: int, round_num: int) -> 
     n = len(songs)
     prompt_hint = " ".join(str(i) for i in range(1, n + 1))
     while True:
+        raw = safe_input(
+            f"Enter your ranking in order (e.g. '{prompt_hint}' or 'Q' to quit): "
+        )
+        if not raw:
+            return songs
+
+        parts = raw.replace(",", " ").split()
+        if len(parts) != n:
+            print(f"  ⚠️  Please provide ranks for all {n} songs separated by spaces (or 'Q' to quit).")
+            continue
+
         try:
-            raw = input(
-                f"Enter your ranking in order (e.g. '{prompt_hint}' or '{' '.join(reversed(prompt_hint.split()))}'): "
-            ).strip()
-            if not raw:
-                return songs
-
-            parts = raw.replace(",", " ").split()
-            if len(parts) != n:
-                print(f"  ⚠️  Please provide ranks for all {n} songs separated by spaces.")
-                continue
-
             indices = [int(p) - 1 for p in parts]
             if sorted(indices) != list(range(n)):
                 print(f"  ⚠️  Please include each number from 1 to {n} exactly once.")
@@ -142,8 +158,8 @@ def console_judge_callback(songs: List[Song], match_id: int, round_num: int) -> 
 
             ranked_songs = [songs[i] for i in indices]
             return ranked_songs
-        except (ValueError, EOFError):
-            print("  ⚠️  Invalid input format. Please enter numbers separated by spaces.")
+        except ValueError:
+            print("  ⚠️  Invalid input format. Please enter numbers separated by spaces (or 'Q' to quit).")
 
 
 def console_separator_insert_callback(
@@ -206,23 +222,45 @@ def configure_dataset_interactive() -> Playlist:
 
     elif "Import" in chosen_mode:
         while True:
-            file_input = input("\nEnter path to spreadsheet (.xlsx or .csv) containing songs (8-128 rows): ").strip()
+            file_input = safe_input("\nEnter path to spreadsheet (.xlsx or .csv) containing songs (8-128 rows): ")
             path = Path(file_input)
             if not path.exists():
                 print(f"  ⚠️  File '{file_input}' not found. Please try again.")
                 continue
+
+            # Explicitly ask user to specify what kind of dataset is being imported
+            kind_options = [
+                "Just song names (titles and artists only)",
+                "Absolute feature data (independent rubric scores)",
+                "Relative feature data (comparative tier ratings)",
+            ]
+            k_idx = prompt_choice("\nSpecify the kind of dataset you are importing:", kind_options, default_index=0)
+            imported_kind = ["names_only", "absolute", "relative"][k_idx]
+
             try:
-                playlist = load_dataset(path, data_type="relative", validate_size=True)
-                print(f"\n✅ Successfully imported '{playlist.name}' with {len(playlist)} songs.")
+                playlist = load_dataset(path, data_type=imported_kind, validate_size=True)
+                if imported_kind != "names_only" and playlist.data_type == "names_only":
+                    print("  ⚠️  Note: No numeric feature columns found in spreadsheet. Imported as 'names_only'.")
+                else:
+                    playlist.data_type = imported_kind
+
+                print(f"\n✅ Successfully imported '{playlist.name}' with {len(playlist)} songs as {playlist.data_type.upper()}.")
                 break
             except Exception as e:
                 print(f"  ⚠️  Failed to load spreadsheet: {e}. Please try another file.")
     else:
         synth_size = prompt_int("\nEnter number of songs for synthetic playlist (8-128)", min_val=8, max_val=128, default_val=16)
-        playlist = generate_synthetic_playlist(size=synth_size, data_type="relative")
-        print(f"\n✅ Generated synthetic playlist with {len(playlist)} songs.")
+        synth_kind_opts = [
+            "Just song names",
+            "Absolute feature data",
+            "Relative feature data",
+        ]
+        sk_idx = prompt_choice("Specify dataset kind for synthetic playlist:", synth_kind_opts, default_index=2)
+        synth_kind = ["names_only", "absolute", "relative"][sk_idx]
+        playlist = generate_synthetic_playlist(size=synth_size, data_type=synth_kind)
+        print(f"\n✅ Generated synthetic playlist with {len(playlist)} songs ({synth_kind.upper()}).")
 
-    # Step 2: Prompt for data mode (names only, absolute, or relative) (README 2b)
+    # Step 2: Prompt for data mode / modifications (README 2b)
     has_features = len(playlist.feature_names) > 0 and playlist.data_type != "names_only"
     print(f"\nCurrent dataset data type: {playlist.data_type.upper()}")
 
@@ -268,12 +306,23 @@ def configure_dataset_interactive() -> Playlist:
             print("\n📝 Creating relative feature data step-by-step...")
             playlist = create_relative_data_interactive(playlist)
 
-    # Step 3: Prompt to cache new/modified dataset (README 2b)
+    # Step 3: Prompt to cache new/modified dataset, explicitly specifying kind (README 2b)
     if prompt_yes_no(f"\nWould you like to cache '{playlist.name}' to the data folder for future tournaments?", default_yes=False):
-        cache_name = input(f"Enter dataset name [Default: {playlist.name}]: ").strip() or playlist.name
-        note = input("Enter a short descriptive note for this dataset: ").strip()
-        saved_path = save_dataset_to_cache(playlist, name=cache_name, note=note)
-        print(f"💾 Dataset successfully cached to '{saved_path}' with metadata!")
+        cache_name = safe_input(f"Enter dataset name [Default: {playlist.name}]: ") or playlist.name
+
+        # User explicitly specifies kind when caching
+        cache_kind_options = [
+            "Just song names (no feature scores)",
+            "Absolute feature data",
+            "Relative feature data",
+        ]
+        cur_kind_def = 0 if playlist.data_type == "names_only" else (1 if playlist.data_type == "absolute" else 2)
+        ck_idx = prompt_choice(f"Specify the kind of data to cache '{cache_name}' as:", cache_kind_options, default_index=cur_kind_def)
+        chosen_cache_kind = ["names_only", "absolute", "relative"][ck_idx]
+
+        note = safe_input("Enter a short descriptive note for this dataset: ")
+        saved_path = save_dataset_to_cache(playlist, name=cache_name, note=note, data_type=chosen_cache_kind)
+        print(f"💾 Dataset successfully cached as {chosen_cache_kind.upper()} to '{saved_path}' with metadata!")
 
     return playlist
 
@@ -288,13 +337,12 @@ def create_absolute_data_interactive(playlist: Playlist) -> Playlist:
         print(f"  • Feature: '{f}'")
         rubrics[f] = {"min": 1.0, "max": 10.0, "description": f"Rating for {f} on scale 1-10"}
 
-    # Scoring batch size choice (README 2b)
     batch_size = prompt_int("How many songs would you like to score at a time?", min_val=1, max_val=len(playlist), default_val=1)
 
     real_songs = list(playlist.real_songs)
     new_songs: List[Song] = []
 
-    print("\nEnter scores for each song using your rubric (1-10):")
+    print("\nEnter scores for each song using your rubric (1-10) or 'Q' to quit:")
     for i in range(0, len(real_songs), batch_size):
         batch = real_songs[i: i + batch_size]
         for s in batch:
@@ -307,7 +355,6 @@ def create_absolute_data_interactive(playlist: Playlist) -> Playlist:
             s_copy.features = song_feats
             new_songs.append(s_copy)
 
-    # Standardize to 1.0 - 10.0 silently
     abs_playlist = Playlist(songs=new_songs, data_type="absolute", feature_names=features, name=f"{playlist.name}_scored")
     return abs_playlist
 
@@ -321,11 +368,11 @@ def create_relative_data_interactive(playlist: Playlist) -> Playlist:
         max_upgrades = max(1, len(batch) // 2)
         print("\n" + "-" * 70)
         print(f"Relative Upgrade: '{feat_name}' (Tier {current_tier} -> {current_tier + 1})")
-        print(f"Select AT MOST {max_upgrades} of the following songs to promote:")
+        print(f"Select AT MOST {max_upgrades} of the following songs to promote (or 'Q' to quit):")
         for idx, s in enumerate(batch, 1):
             print(f"  [{idx}] \"{s.title}\" by {s.artist}")
         print("-" * 70)
-        raw = input(f"Enter the numbers of promoted songs separated by spaces (e.g. '1 2'): ").strip()
+        raw = safe_input("Enter the numbers of promoted songs separated by spaces (e.g. '1 2'): ")
         if not raw:
             return batch[:max_upgrades]
         try:
@@ -355,7 +402,7 @@ def select_criteria_interactive() -> List[str]:
         return ["Melody", "Catchiness", "Lyricism", "Message"]
     else:
         while True:
-            raw = input("Enter feature names separated by commas (e.g., Melody, Rhythm, Vocals): ").strip()
+            raw = safe_input("Enter feature names separated by commas (e.g., Melody, Rhythm, Vocals): ")
             feats = [f.strip() for f in raw.split(",") if f.strip()]
             if feats:
                 return feats
@@ -399,96 +446,100 @@ def main(argv: Optional[List[str]] = None) -> None:
         display_results(result, view_mode=args.view)
         return
 
-    # Interactive flow
-    # Step 1: Configure dataset (cached, new, or synthetic)
-    playlist = configure_dataset_interactive()
+    # Interactive flow enclosed in UserQuitTournament handler
+    try:
+        # Step 1: Configure dataset (cached, new, or synthetic)
+        playlist = configure_dataset_interactive()
 
-    # Step 2: Choose playlist size (8 - size of dataset) (README 2b)
-    total_available = len(playlist)
-    print(f"\nTotal songs in selected dataset: {total_available}")
-    chosen_size = prompt_int(
-        f"Choose tournament playlist size (8-{total_available})",
-        min_val=8,
-        max_val=total_available,
-        default_val=total_available,
-    )
-    if chosen_size < total_available:
-        playlist = playlist.get_random_subset(chosen_size)
-        print(f"🎲 Selected random subset of {chosen_size} songs.")
-
-    # Shuffle internally before tournament runs (README 2b)
-    playlist = playlist.shuffled()
-
-    # Step 3: Choose Tournament format compatible with data (README 2b)
-    format_options = [
-        "Swiss (Ideal for names only, but compatible with any data)",
-        "Sorting (Multi-pivot quicksort with separator insertion, DQN automation)",
-    ]
-    if playlist.data_type == "relative":
-        format_options.append("Hybrid (Filters strictly dominated songs, then runs Swiss/Sorting)")
-
-    fmt_idx = prompt_choice("\nSelect tournament format:", format_options, default_index=0)
-    tournament_format = ["swiss", "sorting", "hybrid"][fmt_idx]
-
-    hybrid_sub_format = "swiss"
-    if tournament_format == "hybrid":
-        sub_choice = prompt_choice(
-            "Select sub-tournament format for surviving songs:",
-            ["Swiss Tournament", "Sorting Tournament"],
-            default_index=0,
+        # Step 2: Choose playlist size (8 - size of dataset) (README 2b)
+        total_available = len(playlist)
+        print(f"\nTotal songs in selected dataset: {total_available}")
+        chosen_size = prompt_int(
+            f"Choose tournament playlist size (8-{total_available})",
+            min_val=8,
+            max_val=total_available,
+            default_val=total_available,
         )
-        hybrid_sub_format = "swiss" if sub_choice == 0 else "sorting"
+        if chosen_size < total_available:
+            playlist = playlist.get_random_subset(chosen_size)
+            print(f"🎲 Selected random subset of {chosen_size} songs.")
 
-    # Step 4: Choose match size (2-8)
-    match_size = prompt_int("\nEnter match size (2-8 songs per match)", min_val=2, max_val=8, default_val=2)
+        # Shuffle internally before tournament runs (README 2b)
+        playlist = playlist.shuffled()
 
-    # Step 5: Automation prompt callback for Sorting (README 2b, 3b)
-    automate_dqn = True
-    has_features = playlist.data_type != "names_only" and len(playlist.feature_names) > 0
+        # Step 3: Choose Tournament format compatible with data (README 2b)
+        format_options = [
+            "Swiss (Ideal for names only, but compatible with any data)",
+            "Sorting (Multi-pivot quicksort with separator insertion, DQN automation)",
+        ]
+        if playlist.data_type == "relative":
+            format_options.append("Hybrid (Filters strictly dominated songs, then runs Swiss/Sorting)")
 
-    def prompt_automation() -> bool:
-        if not has_features:
-            return False
-        print("\n" + "*" * 70)
-        print("🧠 ROUND 1 COMPLETE!")
-        print("   The Deep Q-Network (DQN) has learned your preferences from Round 1 decisions.")
-        print("*" * 70)
-        return prompt_yes_no("Would you like to automate the remaining tournament rounds using the DQN?", default_yes=True)
+        fmt_idx = prompt_choice("\nSelect tournament format:", format_options, default_index=0)
+        tournament_format = ["swiss", "sorting", "hybrid"][fmt_idx]
 
-    print("\n" + "=" * 80)
-    print(f"🚀 STARTING {tournament_format.upper()} TOURNAMENT...")
-    print(f"   Songs: {len(playlist)} | Match Size: {match_size} | Data Type: {playlist.data_type}")
-    print("=" * 80)
+        hybrid_sub_format = "swiss"
+        if tournament_format == "hybrid":
+            sub_choice = prompt_choice(
+                "Select sub-tournament format for surviving songs:",
+                ["Swiss Tournament", "Sorting Tournament"],
+                default_index=0,
+            )
+            hybrid_sub_format = "swiss" if sub_choice == 0 else "sorting"
 
-    exp = TournamentExperiment(
-        playlist_size=chosen_size,
-        tournament_format=tournament_format,
-        hybrid_sub_format=hybrid_sub_format,
-        match_size=match_size,
-        data_type=playlist.data_type,
-        judge_callback=console_judge_callback,
-        separator_insert_callback=console_separator_insert_callback,
-        prompt_automation_callback=prompt_automation,
-        automate_subsequent_rounds=True,
-    )
-    exp.playlist = playlist  # Use the already configured and shuffled playlist directly
+        # Step 4: Choose match size (2-8)
+        match_size = prompt_int("\nEnter match size (2-8 songs per match)", min_val=2, max_val=8, default_val=2)
 
-    result = exp.run()
+        # Step 5: Automation prompt callback for Sorting (README 2b, 3b)
+        has_features = playlist.data_type != "names_only" and len(playlist.feature_names) > 0
 
-    if result.automated_matches > 0:
-        print(f"\n✅ All {result.automated_matches} automated match results have been decided!")
+        def prompt_automation() -> bool:
+            if not has_features:
+                return False
+            print("\n" + "*" * 70)
+            print("🧠 ROUND 1 COMPLETE!")
+            print("   The Deep Q-Network (DQN) has learned your preferences from Round 1 decisions.")
+            print("*" * 70)
+            return prompt_yes_no("Would you like to automate the remaining tournament rounds using the DQN?", default_yes=True)
 
-    # Step 6: View selection (README 2b, Phase 3: "one, top five, all")
-    view_options = [
-        "View complete tournament rankings (All songs)",
-        "View notable songs only (Top 5)",
-        "View winner only (Top 1)",
-    ]
-    view_idx = prompt_choice("\nHow would you like to view the results?", view_options, default_index=0)
-    view_mode = ["all", "notable", "winner"][view_idx]
+        print("\n" + "=" * 80)
+        print(f"🚀 STARTING {tournament_format.upper()} TOURNAMENT...")
+        print(f"   Songs: {len(playlist)} | Match Size: {match_size} | Data Type: {playlist.data_type}")
+        print("=" * 80)
 
-    # Step 7: Display results
-    exp.display(view_mode=view_mode, notable_count=5)
+        exp = TournamentExperiment(
+            playlist_size=chosen_size,
+            tournament_format=tournament_format,
+            hybrid_sub_format=hybrid_sub_format,
+            match_size=match_size,
+            data_type=playlist.data_type,
+            judge_callback=console_judge_callback,
+            separator_insert_callback=console_separator_insert_callback,
+            prompt_automation_callback=prompt_automation,
+            automate_subsequent_rounds=True,
+        )
+        exp.playlist = playlist
+
+        result = exp.run()
+
+        if result.automated_matches > 0:
+            print(f"\n✅ All {result.automated_matches} automated match results have been decided!")
+
+        # Step 6: View selection (README 2b, Phase 3: "one, top five, all")
+        view_options = [
+            "View complete tournament rankings (All songs)",
+            "View notable songs only (Top 5)",
+            "View winner only (Top 1)",
+        ]
+        view_idx = prompt_choice("\nHow would you like to view the results?", view_options, default_index=0)
+        view_mode = ["all", "notable", "winner"][view_idx]
+
+        # Step 7: Display results
+        exp.display(view_mode=view_mode, notable_count=5)
+
+    except UserQuitTournament:
+        print("\n\n👋 Tournament run cancelled by user. See you next time!\n")
+        return
 
 
 if __name__ == "__main__":

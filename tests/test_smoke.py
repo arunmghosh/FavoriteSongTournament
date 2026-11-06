@@ -76,6 +76,44 @@ class TestSmokeIntegration(unittest.TestCase):
         except SystemExit as e:
             self.assertEqual(e.code, 0)
 
+    def test_user_quit_with_q_at_prompts(self) -> None:
+        """Verify that entering 'Q' at any prompt raises UserQuitTournament and runner exits gracefully."""
+        from unittest.mock import patch
+        from runner import (
+            UserQuitTournament,
+            safe_input,
+            prompt_int,
+            prompt_choice,
+            prompt_yes_no,
+            console_judge_callback,
+        )
+        from data_loader import Song
+
+        # Test safe_input with 'q' and 'Q'
+        with patch("builtins.input", return_value="Q"):
+            with self.assertRaises(UserQuitTournament):
+                safe_input("Enter something: ")
+
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(UserQuitTournament):
+                prompt_int("Enter number", 1, 10)
+
+        with patch("builtins.input", return_value="Q"):
+            with self.assertRaises(UserQuitTournament):
+                prompt_choice("Select option", ["Option 1", "Option 2"])
+
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(UserQuitTournament):
+                prompt_yes_no("Continue?")
+
+        with patch("builtins.input", return_value="Q"):
+            with self.assertRaises(UserQuitTournament):
+                console_judge_callback([Song(1, "A", "A"), Song(2, "B", "B")], 1, 1)
+
+        # Test runner_main cleanly exits without unhandled exception when user enters 'Q'
+        with patch("builtins.input", return_value="Q"):
+            runner_main([])
+
 
 if __name__ == "__main__":
     unittest.main()
